@@ -24,7 +24,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 from arkitekt_runtime.calls import _astream_raw, _resolve_parent
 from arkitekt_runtime.messages import Assign
 from arkitekt_runtime.postmans.types import Postman
-from arkitekt_runtime.types import HookInput
+from arkitekt_spec.declare.task import HookInput
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.postman import aexpand_returns, ashrink_args
 from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget

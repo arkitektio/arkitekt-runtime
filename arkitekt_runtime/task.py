@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
-    from arkitekt_runtime.types import HookInput
+    from arkitekt_spec.declare.task import HookInput
     from arkitekt_spec.declare.structures.registry import StructureRegistry
     from arkitekt_spec.declare.structures.types import JSONSerializable
 

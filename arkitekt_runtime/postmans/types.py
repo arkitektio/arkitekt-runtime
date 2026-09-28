@@ -10,7 +10,8 @@ from collections.abc import AsyncGenerator, Sequence
 
 from arkitekt_spec.scalars import ID
 
-from arkitekt_runtime.types import HookInput, TaskEventKind
+from arkitekt_runtime.types import TaskEventKind
+from arkitekt_spec.declare.task import HookInput
 
 
 @runtime_checkable

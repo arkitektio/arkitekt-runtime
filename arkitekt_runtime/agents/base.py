@@ -94,7 +94,7 @@ if TYPE_CHECKING:
     from arkitekt_runtime.postmans.types import Postman, TaskEventLike
     from types import TracebackType
 
-    from arkitekt_runtime.types import HookInput
+    from arkitekt_spec.declare.task import HookInput
 
 
 NO_CALLER_MESSAGE = (

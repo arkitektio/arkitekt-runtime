@@ -1,5 +1,5 @@
-"""The runtime's own slice of the task protocol: hooks, task event kinds, and the
-requests that assign, cancel, pause and resume a task.
+"""The runtime's own slice of the task protocol: task event kinds, and the requests
+that assign, cancel, pause and resume a task (hooks are the spec's).
 
 Seeded from rekuest's generated protocol inputs and owned here from then on (rekuest's
 generated modules import these names from this module): every runtime -- the socket
@@ -11,6 +11,7 @@ from typing import Annotated
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from arkitekt_spec.declare.task import HookInput
 from arkitekt_spec.scalars import ID, ActionHash, Args
 
 
@@ -22,13 +23,6 @@ class GraphQLDefault:
 
     def __repr__(self):
         return 'GraphQLDefault(' + repr(self.value) + ')'
-
-
-class HookKind(str, Enum):
-    """No documentation"""
-    CLEANUP = 'CLEANUP'
-    INIT = 'INIT'
-    __str__ = str.__str__
 
 
 class TaskEventKind(str, Enum):
@@ -54,13 +48,6 @@ class TaskEventKind(str, Enum):
     FAILED = 'FAILED'
     CRITICAL = 'CRITICAL'
     __str__ = str.__str__
-
-
-class HookInput(BaseModel):
-    """A hook is a function that is called when a action has reached a specific lifecycle point. Hooks are jsut actions that take a task as input and return a value."""
-    kind: HookKind = Field(description='The kind of the hook. This is used to identify the hook in the system.')
-    hash: ActionHash = Field(description='The hash of the hook. This is used to identify the hook in the system.')
-    model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
 
 class MappedAgentInput(BaseModel):
@@ -116,7 +103,6 @@ class ResumeInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
 
-HookInput.model_rebuild()
 MappedAgentInput.model_rebuild()
 ResolvedDependencyInput.model_rebuild()
 AssignInput.model_rebuild()
