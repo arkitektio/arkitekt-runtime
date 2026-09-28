@@ -20,25 +20,26 @@ context, when you do that (see :mod:`rath.task`).
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from koil import unkoil, unkoil_gen
 
-from arkitekt_runtime.messages import LogLevel
+from arkitekt_spec.declare.agents.errors import NoCallerError
+from arkitekt_spec.declare.task import AssignmentHook, LocalTask, LogLevel
+from arkitekt_spec.declare.task import Task as TaskProtocol
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
 
     from arkitekt_runtime.actors.helper import AssignmentHelper
-    from arkitekt_runtime.actors.types import AssignmentHook
-    from arkitekt_runtime.invoke import CallTarget, ImplementationTarget
+    from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
     from arkitekt_runtime.types import HookInput
     from arkitekt_spec.declare.structures.registry import StructureRegistry
     from arkitekt_spec.declare.structures.types import JSONSerializable
 
-logger = logging.getLogger("rekuest.task")
+logger = logging.getLogger("arkitekt.task")
 
 _LOG_LEVELS = {
     LogLevel.DEBUG: logging.DEBUG,
@@ -53,7 +54,7 @@ _LOG_LEVELS = {
 class Task:
     """One running assignment, as the action that runs it sees it."""
 
-    __arkitekt_task__ = True  # arkitekt_spec.declare.task.TASK_MARKER: injected, not a port
+    __arkitekt_task__: ClassVar[bool] = True  # TASK_MARKER: injected, not a port
 
     def __init__(self, helper: "AssignmentHelper") -> None:
         self._helper = helper
@@ -132,16 +133,16 @@ class Task:
         puts it best -- nothing is looked up from context.
 
         Raises:
-            ValueError: If no agent runs this task (a :meth:`local` one): a child call
-                needs a socket to leave over and an assignment to hang off.
+            NoCallerError: If no agent runs this task: a child call needs a socket to
+                leave over and an assignment to hang off.
         """
         agent = self._helper.agent
         assignment = self._helper.assignment
         if agent is None or assignment is None:
-            raise ValueError(
-                f"Task {self.id!r} runs for no assignment (a Task.local()?), so a call "
-                "made through it would have nothing to be a child of. Call through a "
-                "Rekuest client instead -- rekuest.call(action, ...) -- which makes a root."
+            raise NoCallerError(
+                f"Task {self.id!r} runs for no assignment, so a call made through it "
+                "would have nothing to be a child of. Call through a Rekuest client "
+                "instead -- rekuest.call(action, ...) -- which makes a root."
             )
         return agent.caller_postman, self._helper.structure_registry, assignment
 
@@ -294,69 +295,20 @@ class Task:
         self._helper.install_hook(hook)
 
     @classmethod
-    def local(cls, id: str = "local", user: str = "local", org: str = "local") -> "Task":
-        """Make a task for calling an action directly, with no agent behind it.
+    def local(cls, id: str = "local", user: str = "local", org: str = "local") -> LocalTask:
+        """A task for calling an action directly, with no agent behind it.
 
-        ``segment(image, task=Task.local(), mikro=mikro)``: logs and progress go
-        to the ``rekuest.task`` logger, pause points return at once, and there is
-        no assignment and no provenance token, so clients handed out for it
-        attribute nothing.
-
-        Args:
-            id: The task id its logs are tagged with.
-            user: The user the task claims to run for.
-            org: The organization the task claims to run in.
-
-        Returns:
-            The task.
+        The spec's :class:`~arkitekt_spec.declare.task.LocalTask`: logs and progress go
+        to the ``arkitekt.task`` logger, pause points return at once, and calls raise
+        :class:`~arkitekt_spec.declare.agents.errors.NoCallerError`.
         """
-        return _LocalTask(_LocalHelper(id=id, user=user, org=org))  # type: ignore[arg-type]
+        return LocalTask(id=id, user=user, org=org)
 
 
-class _LocalTask(Task):
-    """A :class:`Task` whose sync reporting needs no event loop: there is no agent to reach."""
+if TYPE_CHECKING:  # the type checker proves the running task is the spec's Task
 
-    def log(self, message: str, level: LogLevel = LogLevel.DEBUG) -> None:
-        self._helper.log(level, str(message))
-
-    def progress(self, percentage: int, message: str | None = None) -> None:
-        self._helper.progress(int(percentage), message)
-
-    def pausepoint(self) -> None:
-        return None
-
-
-class _LocalHelper:
-    """What a :class:`Task` needs of a helper, for a task no agent is running."""
-
-    assignment = None
-    token = None
-    agent = None
-    structure_registry = None
-
-    def __init__(self, id: str, user: str, org: str) -> None:
-        self.task = id
-        self.user = user
-        self.org = org
-        self.hooks: list["AssignmentHook"] = []
-
-    def log(self, level: LogLevel, message: str) -> None:
-        logger.log(_LOG_LEVELS.get(level, logging.INFO), "[%s] %s", self.task, message)
-
-    def progress(self, percentage: int, message: str | None = None) -> None:
-        logger.info("[%s] %d%% %s", self.task, percentage, message or "")
-
-    async def alog(self, level: LogLevel, message: str) -> None:
-        self.log(level, message)
-
-    async def aprogress(self, percentage: int, message: str | None = None) -> None:
-        self.progress(percentage, message)
-
-    async def abreakpoint(self) -> None:
-        return None
-
-    def install_hook(self, hook: "AssignmentHook") -> None:
-        self.hooks.append(hook)
+    def _running_task_is_a_task(task: Task) -> TaskProtocol:
+        return task
 
 
 __all__ = ["Task"]

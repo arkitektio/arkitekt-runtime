@@ -8,16 +8,15 @@ from typing import (
     runtime_checkable,
     Any,
 )
-from collections.abc import Awaitable
 from arkitekt_spec.declare.agents.types import BoundApp
+from arkitekt_spec.declare.task import AssignmentHook
 from arkitekt_runtime import messages
 from arkitekt_spec.declare.actors.policy import DisconnectPolicy
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_spec.declare.protocol.types import AnyState
 from arkitekt_spec.scalars import Identifier
 from arkitekt_spec.declare.state.publish import Patch
-from collections.abc import Sequence, Callable
-from dataclasses import dataclass
+from collections.abc import Sequence
 
 
 if TYPE_CHECKING:
@@ -25,15 +24,6 @@ if TYPE_CHECKING:
     from arkitekt_runtime.agents.lock import TaskLock
 
 
-@dataclass
-class AssignmentHook:
-    """A hook that is called when an assignment is received. This can be used to
-    modify the assignment before it is processed by the actor.
-    """
-
-    id: str
-    kind: str
-    hook: Callable[[messages.ToAgentMessage], Awaitable[None]]
 
 
 
@@ -114,7 +104,7 @@ class ActorContext(Shelver, LockHost, Capturable, Protocol):
 
     @property
     def caller_postman(self) -> Postman:
-        """The agent-as-caller postman: :class:`~rekuest.task.Task` calls through it.
+        """The agent-as-caller postman: :class:`~arkitekt_runtime.task.Task` calls through it.
 
         Declared as a property, not an attribute: implementations build it lazily, and a
         mutable protocol attribute is invariant, so a read-only property would not satisfy it.

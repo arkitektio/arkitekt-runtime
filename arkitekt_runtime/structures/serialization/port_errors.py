@@ -4,7 +4,7 @@ from typing import Any
 from collections.abc import Sequence
 
 from arkitekt_spec.declare.structures.errors import ExpandingError, ShrinkingError
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 
 
 def _short_repr(value: Any, limit: int = 200) -> str:  # noqa: ANN401

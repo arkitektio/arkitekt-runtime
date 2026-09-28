@@ -37,6 +37,7 @@ from arkitekt_runtime.actors.types import Actor
 from arkitekt_spec.declare.agents.errors import (
     AgentException,
     MissingServiceWarning,
+    NoCallerError,
     ProvisionException,
 )
 from arkitekt_runtime.agents.dataclasses import (
@@ -94,10 +95,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from arkitekt_runtime.types import HookInput
-
-
-class NoCallerError(AgentException):
-    """This runtime cannot call other actions: no caller is wired into its agent."""
 
 
 NO_CALLER_MESSAGE = (

@@ -36,16 +36,6 @@ LogLevelLiteral = Literal[
 ]
 
 
-class LogLevel(str, Enum):
-    """No documentation"""
-
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    ERROR = "ERROR"
-    WARN = "WARN"
-    CRITICAL = "CRITICAL"
-
-
 class AgentMode(str, Enum):
     """How a participant intends to use the single agent protocol.
 

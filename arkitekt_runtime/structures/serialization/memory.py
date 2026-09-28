@@ -11,7 +11,7 @@ next call.
 from typing import Any
 
 from arkitekt_spec.declare.structures.errors import ExpandingError, ShrinkingError
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 
 
 def shrink_memory_reference(

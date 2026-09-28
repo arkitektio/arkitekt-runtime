@@ -12,7 +12,7 @@ from typing import Any, cast
 from collections.abc import Sequence
 
 from arkitekt_spec.actions import PortKind
-from arkitekt_runtime.structures.serialization.protocols import SerializableDefinition
+from arkitekt_spec.declare.targets import SerializableDefinition
 from arkitekt_spec.declare.structures.errors import (
     PortShrinkingError,
     ShrinkingError,
@@ -27,7 +27,7 @@ from arkitekt_runtime.structures.serialization.context import (
 )
 from arkitekt_runtime.structures.serialization.memory import shrink_memory_reference
 from arkitekt_runtime.structures.serialization.predication import predicate_port
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.declare.structures.types import JSONSerializable
 
 

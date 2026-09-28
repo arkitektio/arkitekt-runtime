@@ -24,10 +24,8 @@ from arkitekt_spec.declare.actors.types import (
     PreparedInjectedVariables,
     PreparedDependencyVariables,
 )
-from arkitekt_runtime.actors.types import (
-    Agent,
-    AssignmentHook,
-)
+from arkitekt_runtime.actors.types import Agent
+from arkitekt_spec.declare.task import AssignmentHook
 from arkitekt_runtime import messages
 from arkitekt_spec.actions import DefinitionInput
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState

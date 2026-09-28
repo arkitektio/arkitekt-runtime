@@ -9,8 +9,8 @@ for ``rekuest/client/``, so the target is described structurally and the raw ent
 take plain ids.
 
 **Neither half knows a client.** A :class:`~rekuest.client.client.Rekuest` calls in here
-with its own postman and registry, a :class:`~rekuest.task.Task` with its agent's --
-which is what lets :mod:`rekuest.task` use this while still knowing no service.
+with its own postman and registry, a :class:`~arkitekt_runtime.task.Task` with its agent's --
+which is what lets :mod:`arkitekt_runtime.task` use this while still knowing no service.
 
 ``postman`` and ``structure_registry`` are required keyword arguments, not defaulted
 options. They were once ``None``-defaulted and passed to a resolver that fell back to a
@@ -27,46 +27,10 @@ from arkitekt_runtime.postmans.types import Postman
 from arkitekt_runtime.types import HookInput
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.postman import aexpand_returns, ashrink_args
-from arkitekt_runtime.structures.serialization.protocols import SerializableDefinition
+from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
 from arkitekt_spec.declare.structures.types import JSONSerializable
 
 __all__: list[str] = []
-
-
-@runtime_checkable
-class CallTarget(SerializableDefinition, Protocol):
-    """What a call needs of an action: an id to name it and ports to serialize by.
-
-    Structural rather than ``Action`` on purpose. ``tests/test_layering.py`` forbids any
-    module outside ``rekuest/client/`` from naming ``rekuest.api.schema`` -- even in an
-    annotation -- and a ``Task`` must be able to call. This is the same move
-    :class:`~rekuest.structures.serialization.protocols.SerializableDefinition` makes,
-    for the same reason.
-    """
-
-    @property
-    def id(self) -> Any:  # noqa: ANN401 -- an ID scalar, which is a client-layer name
-        """What the socket calls this action."""
-        ...
-
-
-@runtime_checkable
-class ImplementationTarget(Protocol):
-    """An implementation: an id of its own, wrapping the action it implements.
-
-    Discriminated from :class:`CallTarget` by carrying ``action`` -- an ``Action`` does
-    not -- so the two are told apart without either being named.
-    """
-
-    @property
-    def id(self) -> Any:  # noqa: ANN401 -- an ID scalar
-        """What the socket calls this implementation."""
-        ...
-
-    @property
-    def action(self) -> CallTarget:
-        """The action this implements."""
-        ...
 
 
 @runtime_checkable

@@ -47,7 +47,7 @@ def ensure_return_as_tuple(value: Any) -> tuple[Any]:  # noqa: ANN401
 def _resolve_parent(parent: Assign | None) -> ID | None:
     """The parent task id to attach this call to, as the socket wants it.
 
-    Only what the caller passed: a :class:`~rekuest.task.Task` passes its own assignment.
+    Only what the caller passed: a :class:`~arkitekt_runtime.task.Task` passes its own assignment.
     """
     return coerce_id(parent.task) if parent is not None else None
 

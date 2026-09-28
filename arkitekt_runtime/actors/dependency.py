@@ -22,6 +22,8 @@ from arkitekt_spec.declare.declare import DeclaredAgentAction, DeclaredAgentProt
 from arkitekt_runtime.calls import acall_dependency, call_dependency
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.task import Task
+from arkitekt_spec.declare.agents.errors import NoCallerError
+from arkitekt_spec.declare.task import LocalTask
 
 
 class AgentMethodProxy:
@@ -99,7 +101,7 @@ class AgentDependencyProxy:
         key: str,
         protocol: DeclaredAgentProtocol[Any],
         *,
-        task: Task,
+        task: Task | LocalTask,
         agent: ActorContext,
         structure_registry: StructureRegistry,
     ) -> None:
@@ -113,11 +115,11 @@ class AgentDependencyProxy:
             structure_registry: The actor's registry, which built the protocol's ports.
 
         Raises:
-            ValueError: If ``task`` runs for no assignment (a ``Task.local()``): a
+            NoCallerError: If ``task`` runs for no assignment (a ``Task.local()``): a
                 dependency call is never a root, so there is nothing to parent it to.
         """
-        if task.assignment is None:
-            raise ValueError(
+        if not isinstance(task, Task) or task.assignment is None:
+            raise NoCallerError(
                 f"Dependency '{key}' can only be called for an assignment; task "
                 f"{task.id!r} runs for none (Task.local()?)."
             )

@@ -14,7 +14,8 @@ import pytest
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.actors.types import ActorContext
-from arkitekt_runtime.agents.base import BaseAgent, NoCallerError, NoCallerPostman
+from arkitekt_runtime.agents.base import BaseAgent, NoCallerPostman
+from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 

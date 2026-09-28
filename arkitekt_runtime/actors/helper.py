@@ -4,10 +4,11 @@ from typing import Any, Protocol, Self, runtime_checkable
 from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
-from arkitekt_runtime.messages import LogLevel
+from arkitekt_spec.declare.task import LogLevel
 from koil import unkoil
 from arkitekt_runtime import messages
-from arkitekt_runtime.actors.types import Actor, AssignmentHook
+from arkitekt_runtime.actors.types import Actor
+from arkitekt_spec.declare.task import AssignmentHook
 
 
 @runtime_checkable

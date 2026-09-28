@@ -50,7 +50,7 @@ from arkitekt_runtime.structures.serialization.port_errors import (
     to_shrink_port_error,
 )
 from arkitekt_runtime.structures.serialization.predication import predicate_port
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_runtime.structures.serialization.shrink import ashrink_arg, ashrink_args
 from arkitekt_spec.declare.structures.types import JSONSerializable
 

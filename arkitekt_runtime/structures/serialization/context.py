@@ -9,7 +9,7 @@ from arkitekt_runtime.actors.types import Shelver
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.declare.structures.types import FullFilledStructure, JSONSerializable
 
 

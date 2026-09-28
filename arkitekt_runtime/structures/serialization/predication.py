@@ -9,7 +9,7 @@ from typing import Any
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.structures.quantities import matches_dimension
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.protocols import SerializablePort
+from arkitekt_spec.declare.targets import SerializablePort
 
 
 def _single_child(port: SerializablePort) -> SerializablePort:
