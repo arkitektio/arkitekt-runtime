@@ -1,5 +1,8 @@
 import pytest
+from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from .memory_transport import MemoryAgentTransport
 
 
 class MockShelver:
@@ -46,3 +49,9 @@ def simple_registry() -> StructureRegistry:
 def mock_shelver() -> MockShelver:
     """Fixture for a mock shelver"""
     return MockShelver()
+
+
+@pytest.fixture()
+def mock_agent() -> BaseAgent:
+    """An agent over an in-memory transport, with a registry of its own."""
+    return BaseAgent(transport=MemoryAgentTransport(), name="Test")
