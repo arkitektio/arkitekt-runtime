@@ -1,0 +1,117 @@
+from __future__ import annotations
+import contextlib
+import os
+import threading
+from collections.abc import AsyncGenerator
+
+from arkitekt_runtime import messages
+from arkitekt_runtime.actors.types import Capturable
+
+
+@contextlib.asynccontextmanager
+async def capture_to_list(
+    logs: list[str], agent: Capturable, assignment: messages.Assign
+) -> AsyncGenerator[None, None]:
+    """
+    Unified context manager that:
+    1. Enforces correct execution semantics (exclusive capture vs concurrent normal)
+    2. Captures stdout/stderr at FD level when capture flag is set
+    3. Writes captured output DIRECTLY to the provided list in real-time
+
+    - Normal assignments run immediately unless a capture assignment is active.
+    - Capture assignments run *exclusively*, blocking all others.
+    - Capture assignments capture stdout + stderr at FD level and write directly to logs list.
+    - Normal assignments do not capture logs and do not block other normals.
+
+    Parameters
+    ----------
+    logs : list[str]
+        List to append captured output to DIRECTLY as it's captured
+    agent : Agent
+        Agent with capture_condition and capture_active attributes
+    assignment : messages.Assign
+        Assignment object with a boolean `.capture` attribute
+
+    Yields
+    ------
+    None
+    """
+
+    should_capture: bool = False if assignment.capture is None else assignment.capture
+
+    if should_capture:
+        # ================================
+        #  CAPTURE ASSIGNMENT (exclusive)
+        # ================================
+        async with agent.capture_condition:
+            # Wait if another capture session is active
+            while agent.capture_active:
+                await agent.capture_condition.wait()
+
+            # Activate capture mode
+            agent.capture_active = True
+
+        try:
+            # Create pipes for capturing stdout & stderr
+            out_r, out_w = os.pipe()
+            err_r, err_w = os.pipe()
+
+            # Duplicate original file descriptors
+            orig_out = os.dup(1)
+            orig_err = os.dup(2)
+
+            # Redirect fd 1 → out_w, fd 2 → err_w
+            os.dup2(out_w, 1)
+            os.dup2(err_w, 2)
+
+            # Close writer ends (FD now duplicated)
+            os.close(out_w)
+            os.close(err_w)
+
+            # Reader threads that write DIRECTLY to the logs list
+            def reader(fd: int, prefix: str) -> None:
+                with os.fdopen(fd, "rb") as f:
+                    while True:
+                        data = f.read()
+                        if not data:
+                            break
+                        text = data.decode(errors="replace")
+                        if text:
+                            # Write DIRECTLY to logs list
+                            logs.append(text)
+
+            t_out = threading.Thread(target=reader, args=(out_r, "stdout"))
+            t_err = threading.Thread(target=reader, args=(err_r, "stderr"))
+            t_out.start()
+            t_err.start()
+
+            try:
+                yield
+            finally:
+                # Restore original stdout/stderr
+                os.dup2(orig_out, 1)
+                os.dup2(orig_err, 2)
+                os.close(orig_out)
+                os.close(orig_err)
+
+                # Ensure threads finish draining the pipes
+                t_out.join()
+                t_err.join()
+
+        finally:
+            # Capture session finished — release the world
+            async with agent.capture_condition:
+                agent.capture_active = False
+                agent.capture_condition.notify_all()
+
+    else:
+        # ================================
+        #  NORMAL ASSIGNMENT (concurrent)
+        # ================================
+        async with agent.capture_condition:
+            # If a capture task is running, we must wait
+            while agent.capture_active:
+                await agent.capture_condition.wait()
+
+        # No capture active → proceed normally, allow concurrency
+        yield

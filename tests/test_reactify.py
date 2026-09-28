@@ -1,0 +1,76 @@
+"""Test the reactify function which converts a function or generator into an actor definition."""
+
+from collections.abc import Callable, Generator
+from arkitekt_runtime.actors.actify import reactify
+from arkitekt_spec.declare.actors.types import RegisterConfig
+from arkitekt_spec.actions import ActionKind
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+import pytest
+from .funcs import (
+    nested_basic_function,
+    nested_structure_asyncgenerator,
+    nested_structure_function,
+)
+
+
+def test_actify_function(simple_registry: StructureRegistry) -> None:
+    """Test if the function is correctly buildable into an actor definition."""
+
+    def func() -> int:
+        """This function
+
+        This function is a test function
+
+        """
+
+        return 1
+
+    defi, impl_d, actor_builder = reactify(func, simple_registry)
+    assert defi.kind == ActionKind.FUNCTION
+
+
+def test_actify_stateful_config(simple_registry: StructureRegistry) -> None:
+    """A stateless function is not stateful by default, but honors stateful=True
+    from the config. Guards against the previously-buggy always-truthy state check."""
+
+    def func() -> int:
+        """A stateless function."""
+        return 1
+
+    plain, _, _ = reactify(func, simple_registry)
+    assert plain.stateful is False
+
+    forced, _, _ = reactify(func, simple_registry, RegisterConfig(stateful=True))
+    assert forced.stateful is True
+
+
+def test_actify_generator(simple_registry: StructureRegistry) -> None:
+    """Test if the generator is correctly buildable into an actor definition."""
+
+    def gen() -> Generator[int, None, None]:
+        """This function
+
+        This function is a test function
+
+        """
+
+        yield 1
+
+    defi, impl_d, actor_builder = reactify(gen, simple_registry)
+    assert defi.kind == ActionKind.GENERATOR
+
+
+@pytest.mark.parametrize(
+    "func",
+    [
+        nested_structure_asyncgenerator,
+        nested_structure_function,
+        nested_basic_function,
+    ],
+)
+def test_actify_matrix_functions(
+    simple_registry: StructureRegistry, func: Callable
+) -> None:
+    """Test if different function types are correctly buildable into actor definitions."""
+
+    defi, impl_d, actor_builder = reactify(func, simple_registry)

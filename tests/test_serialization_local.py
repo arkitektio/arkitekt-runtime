@@ -1,0 +1,32 @@
+"""Test the serialization logic with in memory structures"""
+
+import pytest
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_spec.declare.definition.define import prepare_definition
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_runtime.structures.serialization.actor import shrink_outputs
+
+from .funcs import localized_structure_function, LocalizedStructure
+
+
+@pytest.mark.expand
+@pytest.mark.asyncio
+async def test_local_structures(
+    simple_registry: StructureRegistry, mock_shelver: Shelver
+) -> None:
+    """Test if we can shrink a nullable input."""
+    functional_definition = prepare_definition(
+        localized_structure_function, structure_registry=simple_registry
+    )
+
+    shrinks = await shrink_outputs(
+        functional_definition,
+        LocalizedStructure("karl"),
+        structure_registry=simple_registry,
+        shelver=mock_shelver,
+    )
+    assert "return0" in shrinks, "Expected return_0 to be in shrinks"
+    assert shrinks["return0"]["object"] in mock_shelver.shelve, (
+        f"Expected {shrinks['return0']['object']} to be in shelve"
+    )

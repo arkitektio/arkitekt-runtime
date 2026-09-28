@@ -1,0 +1,210 @@
+"""Functional actors for rekuest"""
+
+import logging
+from typing import Any, Self
+from collections.abc import AsyncGenerator, Callable
+from koil.bridge import iterate_threaded, run_threaded  # type: ignore
+from arkitekt_runtime.actors.base import SerializingActor
+from arkitekt_runtime.messages import Assign
+from arkitekt_runtime.structures.serialization.actor import expand_inputs, shrink_outputs
+from arkitekt_runtime.actors.helper import AssignmentHelper
+from arkitekt_runtime.task import Task
+from arkitekt_spec.declare.structures.errors import SerializationError
+from arkitekt_runtime import messages
+from arkitekt_runtime.actors.debug import capture_to_list
+from arkitekt_runtime.task_scope import enter_task_scopes
+
+logger = logging.getLogger(__name__)
+
+#: A strategy that invokes the wrapped callable and yields its result(s).
+ResultIterator = Callable[..., AsyncGenerator[Any, None]]
+
+
+class FunctionalActor(SerializingActor):
+    """An actor that wraps a plain callable (``assign``).
+
+    Functional actors run the wrapped callable through a single assignment
+    pipeline: expand inputs, inject state/context/dependency locals, execute,
+    shrink each result, and publish Yield/Done events.
+
+    How the callable is invoked and iterated is supplied as an ``iterator``
+    strategy (see :data:`FUNC`, :data:`GEN`, :data:`THREADED_FUNC`,
+    :data:`THREADED_GEN`) rather than via subclassing — async vs sync and
+    single-value vs generator only differ in that one step.
+    """
+
+    assign: Callable[..., Any]
+    iterator: "ResultIterator"
+
+    def aiterate_results(
+        self: Self, **params: dict[str, Any]
+    ) -> AsyncGenerator[Any, None]:
+        """Invoke the wrapped callable and yield its result(s)."""
+        return self.iterator(self.assign, **params)
+
+    async def on_assign(
+        self: Self,
+        assignment: Assign,
+    ) -> None:
+        """This method is called when the actor is assigned to a task"""
+
+        impl_id = (
+            f"implementation '{self.definition.name}' "
+            f"(interface={assignment.interface}, action={assignment.action}, "
+            f"task={assignment.task})"
+        )
+
+        await self.asend(
+            message=messages.Progress(
+                task=assignment.task,
+                progress=0,
+                message="Queued for running",
+            )
+        )
+
+        async with self.sync_context(assignment.task, assignment.interface):
+            # Expansion goes through the clients this actor's structure registry
+            # was bound to. The body gets one Task per assignment, and its
+            # dependency proxies and client views are made for that same object.
+            try:
+                input_kwargs = await expand_inputs(
+                    self.definition,
+                    assignment.args,
+                    structure_registry=self.structure_registry,
+                    shelver=self.agent,
+                    skip_expanding=not self.expand_inputs,
+                )
+            except Exception as ex:
+                logger.critical(
+                    f"Input serialization error in {impl_id}", exc_info=True
+                )
+                await self.asend(
+                    message=messages.Failed(
+                        task=assignment.task,
+                        error=str(ex),
+                    )
+                )
+                return
+
+            context_kwargs, state_kwargs = await self.aget_locals(assignment)
+            task = Task(AssignmentHelper(assignment=assignment, actor=self))
+            dependency_kwargs = await self.aget_dependency_locals(task)
+            injected_kwargs = await self.aget_injected_locals(task)
+
+            params: dict[str, Any] = {
+                **input_kwargs,
+                **context_kwargs,
+                **state_kwargs,
+                **dependency_kwargs,
+                **injected_kwargs,
+            }
+
+            logs: list[str] = []
+
+            async def aflush_captured_logs() -> None:
+                if logs and assignment.capture:
+                    await self.asend(
+                        message=messages.Log(
+                            task=assignment.task,
+                            message="".join(logs),
+                            level="INFO",
+                        )
+                    )
+
+            try:
+                # Everything the body does belongs to this task: the clients it
+                # was handed read the task from the scopes their runtime asked for
+                # (rath's, for rekuest's agent) rather than being handed a per-task
+                # copy of themselves. The scopes unwind on every exit, including the
+                # `return`s below and any exception, so a task never outlives the
+                # assignment it belongs to.
+                with enter_task_scopes(getattr(self.agent, "task_scopes", ()), task):
+                    async with capture_to_list(logs, self.agent, assignment):
+                        async for returns in self.aiterate_results(**params):
+                            try:
+                                returns = await shrink_outputs(
+                                    self.definition,
+                                    returns,
+                                    structure_registry=self.structure_registry,
+                                    shelver=self.agent,
+                                    skip_shrinking=not self.shrink_outputs,
+                                )
+                            except SerializationError as ex:
+                                logger.critical(
+                                    f"Output serialization error in {impl_id}",
+                                    exc_info=True,
+                                )
+                                await self.asend(
+                                    message=messages.Failed(
+                                        task=assignment.task,
+                                        error=str(ex),
+                                    )
+                                )
+                                return
+
+                            await self.asend(
+                                message=messages.Yield(
+                                    task=assignment.task,
+                                    returns=returns,
+                                )
+                            )
+
+                await aflush_captured_logs()
+
+                await self.asend(
+                    message=messages.Completed(
+                        task=assignment.task,
+                    )
+                )
+
+            except Exception as ex:
+                await aflush_captured_logs()
+
+                logger.critical(f"Task error in {impl_id}", exc_info=True)
+                await self.asend(
+                    message=messages.Critical(
+                        task=assignment.task,
+                        error=str(ex),
+                    )
+                )
+                return
+
+
+async def _func_iterator(
+    assign: Callable[..., Any], **params: Any
+) -> AsyncGenerator[Any, None]:
+    """Await an async function and yield its single result."""
+    yield await assign(**params)
+
+
+async def _gen_iterator(
+    assign: Callable[..., Any], **params: Any
+) -> AsyncGenerator[Any, None]:
+    """Iterate an async generator function."""
+    async for returns in assign(**params):
+        yield returns
+
+
+async def _threaded_func_iterator(
+    assign: Callable[..., Any], **params: Any
+) -> AsyncGenerator[Any, None]:
+    """Run a sync function in a worker thread and yield its result."""
+    yield await run_threaded(assign, **params)
+
+
+async def _threaded_gen_iterator(
+    assign: Callable[..., Any], **params: Any
+) -> AsyncGenerator[Any, None]:
+    """Iterate a sync generator function from a worker thread."""
+    async for returns in iterate_threaded(assign, **params):
+        yield returns
+
+
+#: Strategy for an async function.
+FUNC: "ResultIterator" = _func_iterator
+#: Strategy for an async generator function.
+GEN: "ResultIterator" = _gen_iterator
+#: Strategy for a sync function (run in a worker thread).
+THREADED_FUNC: "ResultIterator" = _threaded_func_iterator
+#: Strategy for a sync generator function (run in a worker thread).
+THREADED_GEN: "ResultIterator" = _threaded_gen_iterator
