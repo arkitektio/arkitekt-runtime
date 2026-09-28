@@ -202,7 +202,7 @@ def qtinloopactifier(
     structure_registry: StructureRegistry,
     config: RegisterConfig | None = None,
     *,
-    parent: QtWidgets.QWidget = None,
+    parent: QtWidgets.QWidget | None = None,
 ) -> tuple[DefinitionInput, ImplementationDetails, ActorBuilder]:
     """Qt Actifier
 
@@ -242,7 +242,7 @@ def qtwithfutureactifier(
     structure_registry: StructureRegistry,
     config: RegisterConfig | None = None,
     *,
-    parent: QtWidgets.QWidget = None,
+    parent: QtWidgets.QWidget | None = None,
 ) -> tuple[DefinitionInput, ImplementationDetails, ActorBuilder]:
     """Qt Actifier
 
@@ -300,7 +300,7 @@ def qtwithgeneratoractifier(
     structure_registry: StructureRegistry,
     config: RegisterConfig | None = None,
     *,
-    parent: QtWidgets.QWidget = None,
+    parent: QtWidgets.QWidget | None = None,
 ) -> tuple[DefinitionInput, ImplementationDetails, ActorBuilder]:
     """Qt Actifier
 
