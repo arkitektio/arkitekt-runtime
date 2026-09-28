@@ -6,13 +6,15 @@ import contextlib
 import contextvars
 import subprocess
 import sys
+from types import SimpleNamespace
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
 from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent, NoCallerError
+from arkitekt_runtime.actors.types import ActorContext
+from arkitekt_runtime.agents.base import BaseAgent, NoCallerError, NoCallerPostman
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 
@@ -90,15 +92,21 @@ async def test_without_a_scope_nothing_is_entered() -> None:
 
 async def calls_another(task: Task) -> str:
     """Calls another action"""
-    await task.acall("somewhere", {})  # type: ignore[attr-defined]
+    await task.acall(SimpleNamespace(id="action-2", args=[], returns=[]), {})  # type: ignore[attr-defined]
     return "never"
 
 
 async def test_calling_another_action_without_a_caller_fails_at_once() -> None:
     """A runtime that cannot call other actions says so, instead of waiting forever."""
     agent = BaseAgent(transport=MemoryAgentTransport(), app_registry=AppRegistry())
+    # Reading the caller never fails, so protocol checks (which read every member on
+    # Python 3.11) still see an actor context; only calling through it fails.
+    assert isinstance(agent.caller_postman, NoCallerPostman)
+    assert not agent.caller_postman.connected
+    assert isinstance(agent, ActorContext)
     with pytest.raises(NoCallerError):
-        agent.caller_postman  # noqa: B018
+        async for _ in agent.caller_postman.aassign(args={}):
+            pass
 
     agent.app_registry.register(calls_another)
     agent.collect_from_registry()

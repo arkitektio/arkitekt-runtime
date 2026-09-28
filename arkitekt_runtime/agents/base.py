@@ -23,7 +23,7 @@ from typing import (
     Optional,
     Self,
 )
-from collections.abc import AsyncIterator, Awaitable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Sequence
 import janus
 import jsonpatch  # type: ignore[import-untyped]
 from pydantic import ConfigDict, Field, PrivateAttr
@@ -90,11 +90,70 @@ __all__ = [
 
 
 if TYPE_CHECKING:
-    from arkitekt_runtime.postmans.types import Postman
+    from arkitekt_runtime.postmans.types import Postman, TaskEventLike
+    from types import TracebackType
+
+    from arkitekt_runtime.types import HookInput
 
 
 class NoCallerError(AgentException):
     """This runtime cannot call other actions: no caller is wired into its agent."""
+
+
+NO_CALLER_MESSAGE = (
+    "This runtime cannot call other actions: no caller is wired into its agent. Run the "
+    "app in distributed mode (rekuest) to call actions of other apps."
+)
+
+
+class NoCallerPostman:
+    """The caller of an agent that cannot call other actions: every call fails at once.
+
+    A postman rather than a raising property, so that reading ``caller_postman`` never
+    fails; only calling through it does. (On Python 3.11 an ``isinstance`` check against
+    a runtime-checkable protocol reads every member, so a raising property made the
+    check itself raise.)
+    """
+
+    @property
+    def connected(self) -> bool:
+        """Never: there is nothing to originate work through."""
+        return False
+
+    async def aassign(
+        self,
+        *,
+        args: dict[str, Any],
+        capture: bool = False,
+        reference: str | None = None,
+        hooks: "Sequence[HookInput] | None" = None,
+        action: str | None = None,
+        implementation: str | None = None,
+        parent: str | None = None,
+        dependency: str | None = None,
+        method: str | None = None,
+        escalate_to_interrupt: bool = False,
+        cancel_timeout: float | None = None,
+    ) -> "AsyncGenerator[TaskEventLike, None]":
+        """Refuse the call.
+
+        Raises:
+            NoCallerError: Always.
+        """
+        raise NoCallerError(NO_CALLER_MESSAGE)
+        yield  # an async generator, like every postman's aassign
+
+    async def __aenter__(self) -> Self:
+        """Nothing to connect."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: "TracebackType | None",
+    ) -> None:
+        """Nothing to release."""
 
 
 class BaseAgent(KoiledModel):
@@ -295,15 +354,11 @@ class BaseAgent(KoiledModel):
         mode app -- has none, and a call fails at once rather than waiting forever for
         an answer nobody will send.
 
-        Raises:
-            NoCallerError: If this runtime cannot call other actions.
+        Without one, it is a :class:`NoCallerPostman`, whose calls raise
+        :class:`NoCallerError`.
         """
         if self._caller_postman is None:
-            raise NoCallerError(
-                "This runtime cannot call other actions: no caller is wired into its "
-                "agent. Run the app in distributed mode (rekuest) to call actions of "
-                "other apps."
-            )
+            return NoCallerPostman()
         return self._caller_postman
 
     def use_caller(self, postman: "Postman") -> None:
