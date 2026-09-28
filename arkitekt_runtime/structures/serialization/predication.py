@@ -59,9 +59,10 @@ def predicate_port(
     if kind == PortKind.DATE:
         return isinstance(value, dt.datetime)
     if kind == PortKind.INT:
-        return isinstance(value, int)
+        # bool is an int subclass, but True belongs to a BOOL variant.
+        return isinstance(value, int) and not isinstance(value, bool)
     if kind == PortKind.FLOAT:
-        return isinstance(value, float)
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     if kind == PortKind.BOOL:
         return isinstance(value, bool)
     if kind == PortKind.STRING:

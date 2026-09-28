@@ -37,7 +37,7 @@ __all__: list[str] = []
 
 def ensure_return_as_tuple(value: Any) -> tuple[Any]:  # noqa: ANN401
     """Ensure that the value is a list."""
-    if not value:
+    if value is None:
         return tuple()
     if isinstance(value, tuple):
         return value  # type: ignore

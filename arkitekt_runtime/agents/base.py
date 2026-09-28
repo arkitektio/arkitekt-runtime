@@ -188,8 +188,9 @@ class BaseAgent(KoiledModel):
         ),
     )
 
-    # TODO: KV Store
-    shelve: dict[str, Any] = Field(default_factory=dict)  # kv_store -> Seperate
+    shelve: dict[str, Any] = Field(default_factory=dict)
+    """Values this agent shelved locally, by drawer. Owned by this agent only and
+    emptied whenever it tears down."""
     transport: AgentTransport
     task_scopes: list[Any] = Field(
         default_factory=list,
@@ -569,7 +570,8 @@ class BaseAgent(KoiledModel):
         The local drop is what matters; a release the backend cannot take is logged, not
         raised, so it never takes the message loop down with it.
         """
-        del self.shelve[key]
+        # An unknown drawer (already dropped, or shelved before a teardown) is a no-op.
+        self.shelve.pop(key, None)
         try:
             await self.backend.acollect(key)
         except Exception:
@@ -706,8 +708,10 @@ class BaseAgent(KoiledModel):
         """Get a value from the shelve. This is used to get values from the
         shelve for the agent and all the actors that are spawned from it.
         """
-        assert key in self.shelve, "Drawer is not in current shelve"
-        return self.shelve[key]
+        try:
+            return self.shelve[key]
+        except KeyError:
+            raise AgentException(f"Drawer {key} is not in this agent's shelve") from None
 
     async def process(self, message: messages.ToAgentMessage) -> None:
         """Route one inbound message to the concern that owns it.
@@ -946,7 +950,16 @@ class BaseAgent(KoiledModel):
     async def atear_down(self) -> None:
         """Tears down the agent. This is used to tear down the agent
         and all the actors that are spawned from it.
+
+        The shelve is emptied however teardown ends: nothing can reference a
+        shelved value once the agent has stopped.
         """
+        try:
+            await self._atear_down()
+        finally:
+            self.shelve.clear()
+
+    async def _atear_down(self) -> None:
         logger.info("Tearing down the agent")
 
         # A failed aconnect leaves the consumer running; aloop stops it itself.
@@ -1796,9 +1809,15 @@ class BaseAgent(KoiledModel):
             raise
         except Exception as e:
             logger.error(f"Error in agent loop: {str(e)}")
+            self.running = False
             await self._astop_consume_task(consume_task)
             await self.atear_down()
-            raise e
+            raise
+        else:
+            # The stream ended on its own (the connection closed for good).
+            logger.info("Agent message stream ended")
+            self.running = False
+            await self.atear_down()
 
     async def _astop_consume_task(self, consume_task: "asyncio.Task[None]") -> None:
         """Stop the message-consumer task, bounded by ``cancel_grace_period``.

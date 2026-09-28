@@ -113,9 +113,10 @@ async def _int(
 async def _float(
     port: SerializablePort, value: JSONSerializable, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401 -- an expanded structure is whatever the caller registered
-    if not isinstance(value, (float, str)):
+    # JSON has no separate int type for floats, so 3 arrives for 3.0.
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise PortExpandingError(
-            f"Expected value to be a float or str, but got {type(value)}"
+            f"Expected value to be a float, int or str, but got {type(value)}"
         )
     return float(value)
 

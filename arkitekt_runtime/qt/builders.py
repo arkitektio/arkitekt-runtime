@@ -61,12 +61,18 @@ class QtInLoopBuilder(QtCore.QObject):
 
     def qt_assign(self, future: QtFuture[Any], *args, **kwargs) -> None:
         """Assigns the future to the coroutine."""
-        future.resolve(self.wrapped_function(*args, **kwargs))
+        try:
+            result = self.wrapped_function(*args, **kwargs)
+        except Exception as e:
+            # Unresolved, the awaiting assignment would hang forever.
+            future.reject(e)
+            return
+        future.resolve(result)
 
     async def on_assign(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Runs in the same thread as the koil instance."""
 
-        return await self.coro.acall(**kwargs)
+        return await self.coro.acall(*args, **kwargs)
 
     def build(self, agent: Agent, structure_registry: StructureRegistry) -> "FunctionalActor":
         """Build the actor against ``structure_registry``.

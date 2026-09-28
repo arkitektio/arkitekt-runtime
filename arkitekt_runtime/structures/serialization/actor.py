@@ -675,31 +675,7 @@ async def _shrink_structure(
 async def _shrink_bool(
     port: SerializablePort, value: Any, ctx: SerializationContext
 ) -> JSONSerializable:  # noqa: ANN401
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        if value.lower() == "true":
-            return True
-        if value.lower() == "false":
-            return False
-        raise _shrink_error(
-            port,
-            value,
-            ctx,
-            f"Can't shrink string '{value}' to bool. We only accept 'true' or 'false'",
-        )
-    if isinstance(value, int):
-        if value in (0, 1):
-            return bool(value)
-        raise _shrink_error(
-            port, value, ctx, f"Can't shrink int {value} to bool. We only accept 0 or 1"
-        )
-    raise _shrink_error(
-        port,
-        value,
-        ctx,
-        f"Expected bool, str, or int, got {type(value).__name__}: {repr(value)}",
-    )
+    return bool(value)
 
 
 async def _shrink_string(
@@ -805,17 +781,20 @@ async def shrink_outputs(
     A single (non-tuple) return is treated as one output; a tuple is spread
     over the return ports in order.
     """
+    return_ports = definition.returns or ()
     if returns is None:
-        returns = []
+        # A single (nullable) return port that returned None is one output.
+        returns = [None] if len(return_ports) == 1 else []
     elif not isinstance(returns, tuple):
         returns = [returns]
 
-    assert len(definition.returns) == len(returns), (
-        f"Mismatch in Return Length: expected {len(definition.returns)} got {len(returns)}"
-    )
+    if len(return_ports) != len(returns):
+        raise ShrinkingError(
+            f"Mismatch in Return Length: expected {len(return_ports)} got {len(returns)}"
+        )
 
     if skip_shrinking:
-        return {port.key: val for port, val in zip(definition.returns, returns)}
+        return {port.key: val for port, val in zip(return_ports, returns)}
 
     shrunk = await asyncio.gather(
         *[
@@ -827,10 +806,10 @@ async def shrink_outputs(
                 path=[port.key],
                 depth=0,
             )
-            for port, val in zip(definition.returns, returns)
+            for port, val in zip(return_ports, returns)
         ]
     )
-    return {port.key: val for port, val in zip(definition.returns, shrunk)}
+    return {port.key: val for port, val in zip(return_ports, shrunk)}
 
 
 # --------------------------------------------------------------------------- #

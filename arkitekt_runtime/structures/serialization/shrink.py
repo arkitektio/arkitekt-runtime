@@ -136,10 +136,10 @@ async def _enum(
         raise ShrinkingError(f"Port {port} is an enum but has no identifier")
     if isinstance(value, Enum):
         value = value.name
-    if not isinstance(value, str):
-        raise ShrinkingError(
-            f"Expected value o be a string or enum, but got {type(value)}"
-        )
+    else:
+        # Literal-derived enums carry bare values (e.g. 1), whose choices are
+        # their string form -- the same reading the actor side uses.
+        value = str(value)
     if not port.choices:
         raise ShrinkingError(f"Port {port} is an enum but has no choices")
     if not any(value == choice.value for choice in port.choices):
