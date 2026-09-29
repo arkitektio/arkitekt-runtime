@@ -7,6 +7,8 @@ from enum import Enum
 from arkitekt_spec.declare.task import LogLevel
 from koil import unkoil
 from arkitekt_runtime import messages
+from arkitekt_spec.actions import Execution
+from arkitekt_spec.declare.errors import NonDeterministicWorkflow
 from arkitekt_runtime.actors.types import Actor
 from arkitekt_spec.declare.task import AssignmentHook
 
@@ -107,12 +109,60 @@ class AssignmentHelper(BaseModel):
             key (str | None): What the task calls it; by default the kind and its
                 occurrence in this task (``NOW:1``, ``NOW:2``), which a replay matches on.
         """
-        if key is None:
-            self._effect_occurrences[effect] = self._effect_occurrences.get(effect, 0) + 1
-            key = f"{getattr(effect, 'value', effect)}:{self._effect_occurrences[effect]}"
         await self.actor.asend(
-            message=messages.Effect(task=self.assignment.task, effect=effect, value=value, key=key)
+            message=messages.Effect(
+                task=self.assignment.task, effect=effect, value=value, key=self._key_for(effect, key)
+            )
         )
+
+    def _key_for(self, effect: messages.EffectKind, key: str | None) -> str:
+        """The given key, or the effect's kind and its occurrence in this task (``NOW:2``).
+
+        Counted the same whether a value is replayed or taken, so a resumed run of
+        deterministic code asks for the same keys in the same order.
+        """
+        if key is not None:
+            return key
+        occurrence = self._effect_occurrences.get(effect, 0) + 1
+        self._effect_occurrences[effect] = occurrence
+        return f"{getattr(effect, 'value', effect)}:{occurrence}"
+
+    @property
+    def _recorded(self) -> dict[str, messages.RecordedEffect]:
+        resume = self.assignment.resume
+        return {entry.key: entry for entry in resume.effects} if resume is not None else {}
+
+    async def areplay(
+        self, effect: messages.EffectKind, key: str | None = None
+    ) -> tuple[bool, Any, str]:
+        """What a resumed workflow recorded under this key: ``(found, value, key)``.
+
+        Pass the returned key to :meth:`aeffect` when nothing was found, so the value
+        taken now is recorded under it.
+
+        Raises:
+            NonDeterministicWorkflow: The earlier run recorded a different kind of value
+                under this key: the code took another path.
+        """
+        key = self._key_for(effect, key)
+        entry = self._recorded.get(key)
+        if entry is None:
+            return False, None, key
+        if entry.effect != effect:
+            raise NonDeterministicWorkflow(
+                f"Task {self.assignment.task}: the resumed run asked for {getattr(effect, 'value', effect)} "
+                f"under {key!r}, where the run it resumes recorded {getattr(entry.effect, 'value', entry.effect)}."
+            )
+        return True, entry.value, key
+
+    async def ahold(self, message: str, details: dict[str, Any] | None = None) -> None:
+        """Pause the task by itself until a person resumes it."""
+        await self.actor.ahold(self.assignment.task, message, details)
+
+    @property
+    def execution(self) -> Execution:
+        """How this task's implementation runs; only a workflow may call other actions."""
+        return getattr(self.actor, "execution", Execution.PLAIN)
 
     async def abreakpoint(self) -> bool:
         """Check if the actor needs to break"""

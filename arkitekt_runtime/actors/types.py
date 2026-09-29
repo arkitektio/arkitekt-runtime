@@ -11,6 +11,7 @@ from typing import (
 from arkitekt_spec.declare.agents.types import BoundApp
 from arkitekt_spec.declare.task import AssignmentHook
 from arkitekt_runtime import messages
+from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.actors.policy import DisconnectPolicy
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_spec.declare.protocol.types import AnyState
@@ -184,6 +185,7 @@ class Actor(Protocol):
     """Stable identifier for this actor, recorded against the tasks it is running."""
     agent: Agent
     policy: DisconnectPolicy
+    execution: Execution
     """What happens to this actor's work when the agent loses its control channel."""
 
     def has_running_tasks(self) -> bool:
@@ -215,6 +217,10 @@ class Actor(Protocol):
         inquiry does not claim the killed work is still running. Returns how many
         assignments were stopped.
         """
+        ...
+
+    async def ahold(self, task_id: str, message: str, details: dict[str, Any] | None = None) -> None:
+        """Pause ``task_id`` by itself until a person resumes it."""
         ...
 
     async def abreak(self, task_id: str) -> bool:

@@ -653,6 +653,13 @@ class Journal:
             if not is_probe_task(task):
                 self._steps.setdefault(task, 0)
 
+    def resume_from(self, task: str, last_step: int) -> None:
+        """A resumed workflow: its new entries continue after the ``last_step`` its
+        earlier run reached, so no step is numbered twice."""
+        with self._lock:
+            if not is_probe_task(task):
+                self._steps[task] = max(self._steps.get(task, 0), last_step)
+
     def take_step(self, task: str) -> int | None:
         """Take a task's next step for something that is not an entry: a child call,
         whose record is the child task (sent as its ``ASSIGN_REQUEST``'s ``parent_step``).

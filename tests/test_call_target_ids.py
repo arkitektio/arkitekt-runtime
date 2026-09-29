@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from arkitekt_runtime import messages
+from arkitekt_spec.actions import Execution
 from arkitekt_runtime.types import TaskEventKind
 from arkitekt_runtime.task import Task
 
@@ -116,6 +117,8 @@ class _Helper:
         self.assignment = messages.Assign.model_construct(task="task-1")
         self.structure_registry = object()
         self.task = "task-1"
+        # Calls are what only a workflow makes.
+        self.execution = Execution.WORKFLOW
 
 
 def _task(postman: RecordingPostman) -> Task:

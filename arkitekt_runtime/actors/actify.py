@@ -71,6 +71,7 @@ def reactify(
         **implementation_details.actor_kwargs(),
         "concurrency": config.concurrency,
         "policy": config.policy,
+        "execution": config.execution,
     }
 
     if is_coroutine:

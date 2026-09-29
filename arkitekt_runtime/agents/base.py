@@ -950,6 +950,9 @@ class BaseAgent(KoiledModel):
         self._task_gates[message.task] = TaskGate()
         # ...and it is this process's: numbered by step (unless it is a probe).
         self._journal.begin_task(message.task)
+        if message.resume is not None:
+            # A workflow resumed after its agent died: its steps go on where they were.
+            self._journal.resume_from(message.task, message.resume.last_step)
         try:
             actor = self.managed_actors.get(message.interface)
             if actor is None:

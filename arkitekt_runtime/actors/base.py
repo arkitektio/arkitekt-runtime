@@ -27,7 +27,7 @@ from arkitekt_spec.declare.actors.types import (
 from arkitekt_runtime.actors.types import Agent
 from arkitekt_spec.declare.task import AssignmentHook
 from arkitekt_runtime import messages
-from arkitekt_spec.actions import DefinitionInput
+from arkitekt_spec.actions import DefinitionInput, Execution
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
 from arkitekt_runtime.state.observable import Mutation
 from arkitekt_spec.declare.actors.types import (
@@ -71,6 +71,10 @@ class Actor(BaseModel):
     policy: DisconnectPolicy = Field(
         default=KEEP,
         description="What happens to this actor's in-flight work when the agent loses its control channel. Defaults to keeping it running.",
+    )
+    execution: Execution = Field(
+        default=Execution.PLAIN,
+        description="How the implementation runs: only a WORKFLOW may call other actions.",
     )
 
     _running_asyncio_tasks: dict[str, asyncio.Task[None]] = PrivateAttr(
@@ -263,6 +267,17 @@ class Actor(BaseModel):
                 self._running_asyncio_tasks.pop(key, None)
                 self.running_assignments.pop(key, None)
         return stopped
+
+    async def ahold(self: Self, task_id: str, message: str, details: dict[str, Any] | None = None) -> None:
+        """Pause ``task_id`` by itself until a person resumes it (``task.hold``).
+
+        The same pause a Pause request makes, started from the task: PAUSED goes out with
+        why, and the task waits until a RESUME comes (or a cancel ends it).
+        """
+        self._break_futures.setdefault(task_id, asyncio.Future())
+        await self.agent.asend(self, message=messages.Paused(task=task_id, message=message, details=details))
+        await self._break_futures[task_id]
+        await self.agent.asend(self, message=messages.Resumed(task=task_id))
 
     async def abreak(self: Self, task_id: str) -> bool:
         """A function to pause the actor. This is used to instruct the actor to

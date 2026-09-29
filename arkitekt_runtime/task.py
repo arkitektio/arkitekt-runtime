@@ -21,6 +21,8 @@ context, when you do that (see :mod:`rath.task`).
 """
 
 import asyncio
+import inspect
+import json
 import logging
 import secrets
 import time
@@ -28,13 +30,16 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from koil import unkoil, unkoil_gen
 
+from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.agents.errors import NoCallerError
+from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError
+from arkitekt_spec.declare.task import aretry, retry
 from arkitekt_spec.declare.task import AssignmentHook, LocalTask, LogLevel
 from arkitekt_spec.declare.task import Task as TaskProtocol
 from arkitekt_runtime.messages import EffectKind
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator
+    from collections.abc import AsyncGenerator, Callable, Generator
 
     from arkitekt_runtime.actors.helper import AssignmentHelper
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
@@ -54,6 +59,15 @@ _LOG_LEVELS = {
     LogLevel.CRITICAL: logging.CRITICAL,
 }
 
+
+
+def _json(value: Any) -> Any:  # noqa: ANN401
+    """``value``, if a recorded effect can carry it (JSON); else a clear TypeError."""
+    try:
+        json.dumps(value)
+    except TypeError as e:
+        raise TypeError(f"task.record(...) records JSON only; got {type(value).__name__}: {e}") from None
+    return value
 
 
 class Task:
@@ -127,14 +141,12 @@ class Task:
         unkoil(self.apausepoint)
 
     # -- effects ---------------------------------------------------------- #
-    # Values the task takes from outside itself, each recorded as an ``EFFECT`` (its
-    # next step) so that a replay can return the same value. Record-only for now.
+    # Values the task takes from outside itself, each recorded as an ``EFFECT`` under a
+    # key. A resumed workflow gets the recorded value back instead of taking a new one.
 
     async def anow(self) -> float:
         """The current time, in epoch seconds, recorded as this task's effect."""
-        value = time.time()
-        await self._helper.aeffect(EffectKind.NOW, value)
-        return value
+        return await self._atake(EffectKind.NOW, time.time)
 
     def now(self) -> float:
         """The current time, in epoch seconds, recorded as this task's effect."""
@@ -142,25 +154,96 @@ class Task:
 
     async def arandom(self, n: int = 16) -> str:
         """``n`` random bytes, as hex, recorded as this task's effect."""
-        value = secrets.token_hex(n)
-        await self._helper.aeffect(EffectKind.RANDOM, value)
-        return value
+        return await self._atake(EffectKind.RANDOM, lambda: secrets.token_hex(n))
 
     def random(self, n: int = 16) -> str:
         """``n`` random bytes, as hex, recorded as this task's effect."""
         return unkoil(self.arandom, n)
 
     async def asleep(self, seconds: float) -> None:
-        """Sleep for ``seconds``: the deadline is recorded, then slept until."""
-        deadline = time.time() + max(0.0, seconds)
-        await self._helper.aeffect(EffectKind.SLEEP, deadline)
+        """Sleep for ``seconds``: the deadline is recorded, then slept until.
+
+        A resumed workflow sleeps until the recorded deadline, so a sleep its agent died
+        in only waits for what is left of it.
+        """
+        deadline = await self._atake(EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds))
         await asyncio.sleep(max(0.0, deadline - time.time()))
 
     def sleep(self, seconds: float) -> None:
         """Sleep for ``seconds``: the deadline is recorded, then slept until."""
-        deadline = time.time() + max(0.0, seconds)
-        unkoil(self._helper.aeffect, EffectKind.SLEEP, deadline)
+        deadline = unkoil(self._atake, EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds))
         time.sleep(max(0.0, deadline - time.time()))
+
+    async def arecord(self, fn: "Callable[[], Any]", key: str | None = None) -> Any:  # noqa: ANN401
+        """Take a value from outside the task through ``fn`` (awaited if it is a coroutine
+        function), recorded under ``key`` (by default ``RECORD:n``).
+
+        A resumed workflow gets the recorded value back and does not call ``fn``: put
+        anything that can differ from one run to the next here (an LLM completion, a
+        search, a read of something another app may change). JSON only.
+        """
+        found, value, key = await self._helper.areplay(EffectKind.RECORD, key)
+        if found:
+            return value
+        value = fn()
+        if inspect.isawaitable(value):
+            value = await value
+        await self._helper.aeffect(EffectKind.RECORD, _json(value), key=key)
+        return value
+
+    def record(self, fn: "Callable[[], Any]", key: str | None = None) -> Any:  # noqa: ANN401
+        """Take a value from outside the task through ``fn``, recorded (see :meth:`arecord`).
+
+        ``fn`` runs here, in the calling thread, not in the event loop.
+        """
+        found, value, key = unkoil(self._helper.areplay, EffectKind.RECORD, key)
+        if found:
+            return value
+        value = fn()
+        unkoil(self._helper.aeffect, EffectKind.RECORD, _json(value), key)
+        return value
+
+    async def _atake(self, effect: EffectKind, take: "Callable[[], Any]") -> Any:  # noqa: ANN401
+        found, value, key = await self._helper.areplay(effect)
+        if found:
+            return value
+        value = take()
+        await self._helper.aeffect(effect, value, key=key)
+        return value
+
+    # -- deciding about a lost step ---------------------------------------- #
+
+    def retry(self, call: "Callable[..., Any]", *args: Any, attempts: int = 3, if_started: bool = False, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Call ``call(*args, **kwargs)``, again when its agent is lost and that is safe:
+        the lost step never started, or ``if_started=True``. Anything else is re-raised."""
+        return retry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
+
+    async def aretry(self, call: "Callable[..., Any]", *args: Any, attempts: int = 3, if_started: bool = False, **kwargs: Any) -> Any:  # noqa: ANN401
+        """:meth:`retry`, awaiting ``call``."""
+        return await aretry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
+
+    async def ahold(self, message: str, *, lost: AgentLost | None = None) -> None:
+        """Wait for a person: the task pauses with ``message`` until someone resumes it
+        (it carries on from here) or cancels it.
+
+        ``lost`` puts what is known about a lost step in front of whoever decides: what
+        running it again would do (its effects), how far it got. A resumed workflow that
+        was already resumed from this hold carries on without holding again.
+        """
+        found, _, key = await self._helper.areplay(EffectKind.HOLD)
+        if found:
+            return
+        details = (
+            {"started": lost.started, "last_progress": lost.last_progress, "effects": lost.effects, "task": lost.task}
+            if lost is not None
+            else None
+        )
+        await self._helper.ahold(message, details)
+        await self._helper.aeffect(EffectKind.HOLD, "resumed", key=key)
+
+    def hold(self, message: str, *, lost: AgentLost | None = None) -> None:
+        """Wait for a person (see :meth:`ahold`)."""
+        unkoil(self.ahold, message, lost=lost)
 
     # -- calling ---------------------------------------------------------- #
 
@@ -179,6 +262,12 @@ class Task:
         """
         agent = self._helper.agent
         assignment = self._helper.assignment
+        if self._helper.execution != Execution.WORKFLOW:
+            raise NotAWorkflowError(
+                f"Task {self.id!r} called another action, which only a workflow may do: "
+                "register it with @app.workflow. A workflow finds the calls it made again "
+                "when it is resumed; a plain action cannot."
+            )
         if agent is None or assignment is None:
             raise NoCallerError(
                 f"Task {self.id!r} runs for no assignment, so a call made through it "

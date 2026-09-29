@@ -265,6 +265,10 @@ class Assign(Message):
         default=None,
         description="An opaque, signed provenance token attesting who caused this task and with which inputs. The agent forwards it untouched to downstream services; it does not validate it. None when the implementation opts out of provenance (needs_token=False).",
     )
+    resume: "Journal | None" = Field(
+        default=None,
+        description="Set when a workflow's agent died and the task is sent again to be resumed: what it recorded so far.",
+    )
 
 
 class Bounce(Message):
@@ -399,6 +403,10 @@ class Paused(FromAgentEvent):
 
     type: Literal[FromAgentMessageType.PAUSED] = FromAgentMessageType.PAUSED
     task: str
+    message: str | None = None
+    """Why it paused, when the task paused itself (``task.hold``)."""
+    details: dict[str, Any] | None = None
+    """What a person deciding may want to know (``task.hold(lost=...)``: the lost step)."""
 
 
 class Resumed(FromAgentEvent):
@@ -598,6 +606,29 @@ class EffectKind(str, Enum):
     """Random bytes: ``value`` is their hex."""
     SLEEP = "SLEEP"
     """A sleep: ``value`` is its deadline, in epoch seconds (float)."""
+    RECORD = "RECORD"
+    """Any value the task took through ``task.record(fn)``: JSON."""
+    HOLD = "HOLD"
+    """A hold a person resumed: ``value`` is ``"resumed"``."""
+
+
+class RecordedEffect(BaseModel):
+    """A value a workflow recorded, which its resumed run gets back by ``key``."""
+
+    key: str
+    effect: EffectKind
+    value: Any = None
+
+
+class Journal(BaseModel):
+    """What a workflow recorded before its agent died: handed back so the resume can replay it.
+
+    Calls it made are not listed: re-issued with the same call key, each finds its child
+    again (the server answers with the child's events so far).
+    """
+
+    last_step: int = Field(default=0, description="The last step the task took; new reports continue after it.")
+    effects: list[RecordedEffect] = Field(default_factory=list)
 
 
 class Effect(FromAgentEvent):
@@ -607,7 +638,7 @@ class Effect(FromAgentEvent):
     type: Literal[FromAgentMessageType.EFFECT] = FromAgentMessageType.EFFECT
     task: str
     effect: EffectKind
-    value: float | str
+    value: Any
     key: str | None = None
     """What the task calls this value (by default the kind and occurrence, ``NOW:1``)."""
 
@@ -1287,3 +1318,6 @@ FromAgentMessage = (
     | Unshelve
     | Effect
 )
+
+
+Assign.model_rebuild()
