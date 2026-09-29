@@ -418,8 +418,13 @@ class Actor(BaseModel):
         logged it. The backend was never told, and the task sat there forever with a
         perfectly healthy-looking agent. This is the net under every ``on_assign``,
         whichever actor class implements it.
+
+        It also reports ``STARTED`` first, for every actor class: it is the task's step 1,
+        and until it arrives the server still counts the task as QUEUED, so an idempotent
+        task whose agent dies is taken for one already re-queued and never re-dispatched.
         """
         try:
+            await self.asend(message=messages.Started(task=assignment.task))
             await self.on_assign(assignment)
         except asyncio.CancelledError:
             raise  # Cancel/Interrupt/teardown report their own terminal message

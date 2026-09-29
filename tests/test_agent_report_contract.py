@@ -255,6 +255,22 @@ async def test_effects_are_recorded_as_numbered_task_steps(func: Any) -> None:  
     }
 
 
+async def test_a_task_reports_started_as_its_first_step() -> None:
+    """Until STARTED arrives the server counts a running task as QUEUED, and takes an
+    idempotent one whose agent died for one it already re-queued."""
+    registry = AppRegistry()
+    registry.register(takes_effects)
+    agent, transport = _agent(registry)
+    await agent._adispatch(messages.SessionInit(session_id="s", states={}))
+
+    await run_assignment(agent, _assign("takes_effects"))
+
+    task_frames = [m for m in transport.sent if getattr(m, "task", None) == "42"]
+    assert isinstance(task_frames[0], messages.Started), task_frames
+    assert task_frames[0].task_step == 1
+    assert len(transport.of_type(messages.Started)) == 1
+
+
 async def test_a_probes_frames_are_never_numbered() -> None:
     registry = AppRegistry()
     registry.register(takes_effects)
