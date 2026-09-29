@@ -404,3 +404,11 @@ async def test_a_value_shelved_after_its_tasks_end_is_shelved_by_no_task() -> No
     await asyncio.gather(*agent._dispatch_tasks)
     (shelve,) = transport.of_type(messages.Shelve)
     assert (shelve.task, shelve.task_step) == (None, None)
+
+
+def test_the_client_knows_every_task_event_kind_the_server_records() -> None:
+    """A task's history holds EFFECT events (rekuest server 4); a client that cannot parse
+    the kind crashes on the first one it is sent."""
+    from arkitekt_runtime.types import TaskEventKind
+
+    assert TaskEventKind("EFFECT") is TaskEventKind.EFFECT
