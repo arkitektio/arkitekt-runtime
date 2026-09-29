@@ -250,3 +250,19 @@ async def test_a_resumed_guard_stops_when_something_else_changed_the_state() -> 
 
     ended = transport.of_type(messages.Failed) + transport.of_type(messages.Critical)
     assert "/barcode" in ended[0].error and "task 9" in ended[0].error
+
+
+def guards_a_value(task: Task) -> str:
+    """Guards something that is not a dependency's state."""
+    with task.guard({"barcode": "B1"}, "barcode"):
+        return "worked"
+
+
+async def test_a_guard_on_anything_but_a_dependencys_state_says_what_it_takes() -> None:
+    agent, _ = _agent(guards_a_value)
+    agent.use_caller(Guardian())
+
+    transport = await _ended(agent, _assign("guards_a_value"))
+
+    (critical,) = transport.of_type(messages.Critical)
+    assert "state attribute of a dependency" in critical.error and "dict" in critical.error

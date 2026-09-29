@@ -224,7 +224,7 @@ class Task:
         return await aretry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
 
     @contextlib.asynccontextmanager
-    async def aguard(self, state: StateRef, *paths: str) -> "AsyncIterator[None]":
+    async def aguard(self, state: object, *paths: str) -> "AsyncIterator[None]":
         """Watch a dependency's state (the ``paths`` of it, or all of it) across a resume.
 
         The first run records the state's revision on entering. A resumed run, entering
@@ -237,12 +237,17 @@ class Task:
         yield
 
     @contextlib.contextmanager
-    def guard(self, state: StateRef, *paths: str) -> "Iterator[None]":
+    def guard(self, state: object, *paths: str) -> "Iterator[None]":
         """Watch a dependency's state across a resume (see :meth:`aguard`)."""
         unkoil(self._aenter_guard, state, paths)
         yield
 
-    async def _aenter_guard(self, state: StateRef, paths: "tuple[str, ...]") -> None:
+    async def _aenter_guard(self, state: object, paths: "tuple[str, ...]") -> None:
+        if not isinstance(state, StateRef):
+            raise TypeError(
+                f"task.guard takes the state attribute of a dependency (task.guard(handler.plate)), "
+                f"not {type(state).__name__}."
+            )
         postman, _, assignment = self._caller()
         ask = getattr(postman, "astate_revision", None)
         if ask is None:
