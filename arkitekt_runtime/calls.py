@@ -15,7 +15,7 @@ import uuid
 from typing import Any
 from collections.abc import AsyncGenerator
 
-from koil import unkoil
+from koil import unkoil, unkoil_gen
 from arkitekt_spec.scalars import ID, coerce_id
 
 from arkitekt_spec.actions import DefinitionInput
@@ -207,3 +207,41 @@ def call_dependency(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
     parameters).
     """
     return unkoil(acall_dependency, *args, **kwargs)
+
+
+async def aiterate_dependency(
+    definition: DefinitionInput,
+    dependency_key: ID,
+    method: str,
+    *args: Any,  # noqa: ANN401 -- the method's own arguments
+    postman: Postman,
+    structure_registry: StructureRegistry,
+    reference: str | None = None,
+    hooks: list[HookInput] | None = None,
+    parent: Assign | None = None,
+    capture: bool = False,
+    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+) -> AsyncGenerator[Any, None]:
+    """Stream a generator method of a dependency, each yield expanded."""
+    shrinked_args = await ashrink_actor_args(
+        definition, args, kwargs, structure_registry=structure_registry
+    )
+    async for raw_returns in _astream_raw(
+        postman,
+        args=shrinked_args,
+        reference=reference,
+        hooks=hooks,
+        capture=capture,
+        parent=_resolve_parent(parent),
+        dependency=dependency_key,
+        method=method,
+    ):
+        returns = await aexpand_actor_returns(
+            definition, raw_returns, structure_registry
+        )
+        yield returns[0] if len(returns) == 1 else returns
+
+
+def iterate_dependency(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    """Blocking counterpart to :func:`aiterate_dependency` (see there for parameters)."""
+    return unkoil_gen(aiterate_dependency, *args, **kwargs)

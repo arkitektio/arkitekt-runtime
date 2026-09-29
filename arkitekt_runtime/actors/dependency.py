@@ -19,7 +19,13 @@ from arkitekt_spec.scalars import coerce_id
 
 from arkitekt_runtime.actors.types import ActorContext
 from arkitekt_spec.declare.declare import DeclaredAgentAction, DeclaredAgentProtocol
-from arkitekt_runtime.calls import acall_dependency, call_dependency
+from arkitekt_runtime.calls import (
+    acall_dependency,
+    aiterate_dependency,
+    call_dependency,
+    iterate_dependency,
+)
+from arkitekt_spec.actions import ActionKind
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.task import Task
 from arkitekt_spec.declare.agents.errors import NoCallerError
@@ -51,6 +57,7 @@ class AgentMethodProxy:
         self.method = method
         self.action = action
         self.is_async = action.is_async
+        self.is_generator = action.definition.kind == ActionKind.GENERATOR
         self.task = task
         self.agent = agent
         self.structure_registry = structure_registry
@@ -78,8 +85,28 @@ class AgentMethodProxy:
             *self._call_args(), *args, **self._call_kwargs(kwargs)
         )
 
+    def iterate(self, *args: Any, **kwargs: Any) -> Any:
+        """Stream the dependency's generator method, blocking between its yields."""
+        return iterate_dependency(
+            *self._call_args(), *args, **self._call_kwargs(kwargs)
+        )
+
+    def aiterate(self, *args: Any, **kwargs: Any) -> Any:
+        """Stream the dependency's generator method as an async iterator."""
+        return aiterate_dependency(
+            *self._call_args(), *args, **self._call_kwargs(kwargs)
+        )
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        """Call as the protocol declared the method: awaitable if it is ``async``."""
+        """Call as the protocol declared the method.
+
+        A method annotated as a generator streams (an iterator, async if the method is
+        ``async``); any other returns its result (awaitable if ``async``).
+        """
+        if self.is_generator:
+            if self.is_async:
+                return self.aiterate(*args, **kwargs)
+            return self.iterate(*args, **kwargs)
         if self.is_async:
             return self.acall(*args, **kwargs)
 
