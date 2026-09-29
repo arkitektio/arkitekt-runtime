@@ -23,6 +23,7 @@ from arkitekt_runtime.calls import acall_dependency, call_dependency
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.task import Task
 from arkitekt_spec.declare.agents.errors import NoCallerError
+from arkitekt_spec.declare.task import StateRef
 from arkitekt_spec.declare.task import LocalTask
 
 
@@ -129,21 +130,17 @@ class AgentDependencyProxy:
         self._agent = agent
         self._structure_registry = structure_registry
 
-    def __getattr__(self, name: str) -> AgentMethodProxy:
-        """The method proxy for the declared action ``name``.
+    def __getattr__(self, name: str) -> "AgentMethodProxy | StateRef":
+        """The method proxy for the declared action ``name``, or a :class:`StateRef` for
+        the declared state ``name`` (what ``task.guard`` watches; its value is not read here).
 
         Raises:
-            AttributeError: If the protocol declares no such action. A state demand
-                is named as such: a dependency's state is not readable through the
-                proxy.
+            AttributeError: If the protocol declares no such action or state.
         """
         action = self._protocol.actions.get(name)
         if action is None:
             if name in self._protocol.states:
-                raise AttributeError(
-                    f"'{name}' is a state demand of '{self._protocol.interface}'; "
-                    "reading a dependency's state through the proxy is not supported."
-                )
+                return StateRef(dependency=self._key, state=name)
             raise AttributeError(
                 f"'{self._protocol.interface}' (dependency '{self._key}') has no "
                 f"action '{name}'. Its actions are: "

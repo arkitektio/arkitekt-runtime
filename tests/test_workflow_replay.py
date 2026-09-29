@@ -13,7 +13,7 @@ from typing import Any
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.task import Task
+from arkitekt_spec.declare.task import StateRef, Task
 
 from .agent_helpers import run_assignment
 from .memory_transport import MemoryAgentTransport
@@ -192,3 +192,61 @@ async def test_a_hold_already_resumed_before_is_not_held_again() -> None:
 
     assert returns["return0"] == "went on"
     assert transport.of_type(messages.Paused) == []
+
+
+class Guardian:
+    """Answers a guard's questions: the revision now, and whether it changed."""
+
+    connected = True
+
+    def __init__(self, changed: bool = False) -> None:
+        self.changed = changed
+        self.asked: list[dict] = []
+
+    async def astate_revision(self, **kwargs: Any) -> messages.StateRevisionResponse:  # noqa: ANN401
+        self.asked.append(kwargs)
+        return messages.StateRevisionResponse(
+            request="r", revision={"session": "s1", "global_rev": 4},
+            changed=self.changed if kwargs.get("since") is not None else None,
+            detail="'plate' changed at /barcode (by task 9) since the workflow last saw it.",
+        )
+
+
+def guarded(task: Task) -> str:
+    """Works on the plate, guarded."""
+    with task.guard(StateRef(dependency="handler", state="plate"), "barcode"):
+        return "worked"
+
+
+async def test_a_guard_records_the_revision_on_entering() -> None:
+    agent, transport = _agent(guarded)
+    guardian = Guardian()
+    agent.use_caller(guardian)
+
+    assert (await run_assignment(agent, _assign("guarded")))["return0"] == "worked"
+
+    assert guardian.asked == [{"parent": "42", "dependency": "handler", "state": "plate", "paths": ("barcode",)}]
+    (recorded,) = transport.of_type(messages.Effect)
+    assert (recorded.effect, recorded.value) == ("RECORD", {"session": "s1", "global_rev": 4})
+
+
+async def test_a_resumed_guard_carries_on_when_nothing_else_changed_the_state() -> None:
+    agent, _ = _agent(guarded)
+    guardian = Guardian(changed=False)
+    agent.use_caller(guardian)
+    seen = {"session": "s1", "global_rev": 2}
+
+    returns = await run_assignment(agent, _assign("guarded", {"last_step": 2, "effects": [{"key": "RECORD:1", "effect": "RECORD", "value": seen}]}))
+
+    assert returns["return0"] == "worked"
+    assert guardian.asked[0]["since"] == seen
+
+
+async def test_a_resumed_guard_stops_when_something_else_changed_the_state() -> None:
+    agent, _ = _agent(guarded)
+    agent.use_caller(Guardian(changed=True))
+
+    transport = await _ended(agent, _assign("guarded", {"last_step": 2, "effects": [{"key": "RECORD:1", "effect": "RECORD", "value": {"session": "s1", "global_rev": 2}}]}))
+
+    ended = transport.of_type(messages.Failed) + transport.of_type(messages.Critical)
+    assert "/barcode" in ended[0].error and "task 9" in ended[0].error

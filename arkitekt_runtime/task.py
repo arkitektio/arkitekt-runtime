@@ -21,6 +21,7 @@ context, when you do that (see :mod:`rath.task`).
 """
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -32,14 +33,14 @@ from koil import unkoil, unkoil_gen
 
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.agents.errors import NoCallerError
-from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError
-from arkitekt_spec.declare.task import aretry, retry
+from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError, StateChanged
+from arkitekt_spec.declare.task import StateRef, aretry, retry
 from arkitekt_spec.declare.task import AssignmentHook, LocalTask, LogLevel
 from arkitekt_spec.declare.task import Task as TaskProtocol
 from arkitekt_runtime.messages import EffectKind
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Generator
+    from collections.abc import AsyncGenerator, AsyncIterator, Callable, Generator, Iterator
 
     from arkitekt_runtime.actors.helper import AssignmentHelper
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
@@ -221,6 +222,39 @@ class Task:
     async def aretry(self, call: "Callable[..., Any]", *args: Any, attempts: int = 3, if_started: bool = False, **kwargs: Any) -> Any:  # noqa: ANN401
         """:meth:`retry`, awaiting ``call``."""
         return await aretry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
+
+    @contextlib.asynccontextmanager
+    async def aguard(self, state: StateRef, *paths: str) -> "AsyncIterator[None]":
+        """Watch a dependency's state (the ``paths`` of it, or all of it) across a resume.
+
+        The first run records the state's revision on entering. A resumed run, entering
+        again, asks whether anything other than this workflow's own calls changed it since,
+        or its agent restarted and set it up again: then it raises ``StateChanged`` instead
+        of carrying on into a world that moved. Changes while the workflow runs are not
+        watched.
+        """
+        await self._aenter_guard(state, paths)
+        yield
+
+    @contextlib.contextmanager
+    def guard(self, state: StateRef, *paths: str) -> "Iterator[None]":
+        """Watch a dependency's state across a resume (see :meth:`aguard`)."""
+        unkoil(self._aenter_guard, state, paths)
+        yield
+
+    async def _aenter_guard(self, state: StateRef, paths: "tuple[str, ...]") -> None:
+        postman, _, assignment = self._caller()
+        ask = getattr(postman, "astate_revision", None)
+        if ask is None:
+            raise NoCallerError(f"Task {self.id!r} runs where nothing can answer a guard.")
+        found, recorded, key = await self._helper.areplay(EffectKind.RECORD)
+        if found:
+            response = await ask(parent=assignment.task, dependency=state.dependency, state=state.state, since=recorded, paths=paths)
+            if response.changed:
+                raise StateChanged(response.detail or f"{state.state!r} of {state.dependency!r} changed while the workflow was down.")
+            return
+        response = await ask(parent=assignment.task, dependency=state.dependency, state=state.state, paths=paths)
+        await self._helper.aeffect(EffectKind.RECORD, response.revision, key=key)
 
     async def ahold(self, message: str, *, lost: AgentLost | None = None) -> None:
         """Wait for a person: the task pauses with ``message`` until someone resumes it

@@ -76,6 +76,7 @@ class ToAgentMessageType(str, Enum):
     JOURNAL_ACK = "JOURNAL_ACK"
     ASSIGN_RESPONSE = "ASSIGN_RESPONSE"
     PROBE_RESPONSE = "PROBE_RESPONSE"
+    STATE_REVISION_RESPONSE = "STATE_REVISION_RESPONSE"
     # Replies to the agent's shelving requests.
     SHELVED = "SHELVED"
     UNSHELVED = "UNSHELVED"
@@ -129,6 +130,7 @@ class FromAgentMessageType(str, Enum):
     SESSION_INIT = "SESSION_INIT"
     ASSIGN_REQUEST = "ASSIGN_REQUEST"
     PROBE_REQUEST = "PROBE_REQUEST"
+    STATE_REVISION_REQUEST = "STATE_REVISION_REQUEST"
     # Shelving: what the agent holds in memory.
     SHELVE = "SHELVE"
     UNSHELVE = "UNSHELVE"
@@ -860,6 +862,33 @@ class AssignRequest(Message):
     )
 
 
+class StateRevisionRequest(Message):
+    """A workflow's guard asking about a state it depends on (``task.guard``).
+
+    Without ``since``: the state's revision now, which the guard records. With ``since``
+    (the recorded one, on a resumed run): whether anything other than the workflow's own
+    calls changed the guarded ``paths`` since, or the state was set up again.
+    """
+
+    type: Literal[FromAgentMessageType.STATE_REVISION_REQUEST] = FromAgentMessageType.STATE_REVISION_REQUEST
+    parent: str
+    dependency: str
+    state: str
+    since: dict[str, Any] | None = None
+    paths: list[str] = Field(default_factory=list)
+
+
+class StateRevisionResponse(Message):
+    """The answer to a ``StateRevisionRequest``."""
+
+    type: Literal[ToAgentMessageType.STATE_REVISION_RESPONSE] = ToAgentMessageType.STATE_REVISION_RESPONSE
+    request: str
+    revision: dict[str, Any] | None = None
+    changed: bool | None = None
+    detail: str | None = None
+    error: str | None = None
+
+
 class AssignResponse(Message):
     """The backend's authoritative ack that an ``AssignRequest`` was persisted.
 
@@ -1285,6 +1314,7 @@ ToAgentMessage = Union[
     JournalAck,
     AssignResponse,
     ProbeResponse,
+    StateRevisionResponse,
     ControlResponse,
     # ...plus every backend→caller mirror (kept in one place above).
     *get_args(ExecutionEventMessage),
@@ -1310,6 +1340,7 @@ FromAgentMessage = (
     | SessionInit
     | AssignRequest
     | ProbeRequest
+    | StateRevisionRequest
     | CancelRequest
     | InterruptRequest
     | PauseRequest
