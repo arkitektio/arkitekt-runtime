@@ -930,6 +930,16 @@ class BaseAgent(KoiledModel):
             await self._arun_provider_message(message)  # type: ignore[arg-type]
         self._provider_ready = True
 
+    def _complete_resume(self, message: messages.Assign) -> messages.Assign:
+        """Add to a resumed workflow's journal what only this process still holds.
+
+        The server builds the journal from what it received. A value the dead process took
+        but never got to send is missing from it, and a resumed run would take a new one.
+        An agent that keeps what it has not yet sent (a journal on disk) completes it here.
+        Returns the assignment unchanged by default.
+        """
+        return message
+
     async def _aassign_to_actor(self, message: messages.Assign) -> None:
         """Hand a new assignment to its actor, spawning the actor if needed.
 
@@ -945,6 +955,8 @@ class BaseAgent(KoiledModel):
         """
         if await self._ais_duplicate_assign(message):
             return
+        if message.resume is not None:
+            message = self._complete_resume(message)
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()
@@ -1382,11 +1394,15 @@ class BaseAgent(KoiledModel):
             # PROGRESS/YIELD but never COMPLETED or ERROR.
             self.running_assignments.pop(message.task, None)
             self.managed_assignments.pop(message.task, None)
+            self._task_ended(message.task)
             self._finished_tasks[message.task] = None
             while len(self._finished_tasks) > _FINISHED_TASKS_REMEMBERED:
                 forgotten = next(iter(self._finished_tasks))
                 self._finished_tasks.pop(forgotten)
                 self._task_gates.pop(forgotten, None)
+
+    def _task_ended(self, task: str) -> None:
+        """A task this agent ran reported its end: forget what was kept for it. Nothing in the core."""
 
     def _retain_emitted(
         self, message: messages.FromAgentMessage, entry: JournalEntry | None
