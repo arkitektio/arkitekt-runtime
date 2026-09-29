@@ -76,9 +76,9 @@ class TaskLock:
         sees lock/unlock events in their true order; the local lock is released
         even if the notification fails (deadlock invariant 4).
         """
-        self.locking_task = None
+        holder, self.locking_task = self.locking_task, None
         try:
-            await self.agent.aunlock(self.lock_key)
+            await self.agent.aunlock(self.lock_key, holder)
         finally:
             self.lock.release()
 

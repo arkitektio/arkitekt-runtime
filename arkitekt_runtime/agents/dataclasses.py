@@ -41,6 +41,16 @@ class QueuedAssign:
 
 
 @dataclass
+class QueuedStep:
+    """A task taking its next step for a child call, in order with its reports: the
+    processor numbers it and resolves ``waiter`` with the step (``None`` when there is
+    none to take: no session yet, or a probe)."""
+
+    task: str
+    waiter: "asyncio.Future[int | None]"
+
+
+@dataclass
 class RevisedState:
     """Current agent-owned shrunk state together with its local revision."""
 
@@ -48,4 +58,4 @@ class RevisedState:
     data: JSONSerializable
 
 
-__all__ = ["QueuedAssign", "QueuedMessage", "QueuedPatchEvent", "RevisedState"]
+__all__ = ["QueuedAssign", "QueuedMessage", "QueuedPatchEvent", "QueuedStep", "RevisedState"]

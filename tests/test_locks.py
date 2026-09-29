@@ -79,7 +79,7 @@ async def test_failed_lock_notification_releases_the_local_lock() -> None:
         async def alock(self, key: str, task: str) -> None:
             raise RuntimeError("transport down")
 
-        async def aunlock(self, key: str) -> None:
+        async def aunlock(self, key: str, task: str | None = None) -> None:
             return None
 
     task_lock = TaskLock(

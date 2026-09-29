@@ -82,8 +82,8 @@ class LockHost(Protocol):
         """Report that a task has acquired a lock."""
         ...
 
-    async def aunlock(self, key: str) -> None:
-        """Report that a task has released a lock."""
+    async def aunlock(self, key: str, task: str | None = None) -> None:
+        """Report that a task (``task``, the holder) has released a lock."""
         ...
 
     def get_locks_for_keys(self, keys: Sequence[str]) -> list["TaskLock"]:

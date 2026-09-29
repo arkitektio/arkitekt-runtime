@@ -6,7 +6,8 @@
         ...
 
 A ``Task`` is about the task only: what it is (id, user, org, token) and what
-it reports (logs, progress, pause points, hooks). The app's clients are services
+it reports (logs, progress, pause points, hooks, and the effects -- ``now()``,
+``random(n)``, ``sleep(seconds)`` -- it takes from outside itself). The app's clients are services
 and are injected as their own parameters -- the one shared instance of each, not
 a per-task copy. What attributes their requests to this task is
 :data:`rath.task.current_task`, which the actor sets around the body. A task
@@ -19,7 +20,10 @@ reach a thread the action starts itself; pass ``task=`` to a call, or carry the
 context, when you do that (see :mod:`rath.task`).
 """
 
+import asyncio
 import logging
+import secrets
+import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from koil import unkoil, unkoil_gen
@@ -27,6 +31,7 @@ from koil import unkoil, unkoil_gen
 from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.task import AssignmentHook, LocalTask, LogLevel
 from arkitekt_spec.declare.task import Task as TaskProtocol
+from arkitekt_runtime.messages import EffectKind
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -120,6 +125,42 @@ class Task:
     def pausepoint(self) -> None:
         """Pause here if the task was asked to."""
         unkoil(self.apausepoint)
+
+    # -- effects ---------------------------------------------------------- #
+    # Values the task takes from outside itself, each recorded as an ``EFFECT`` (its
+    # next step) so that a replay can return the same value. Record-only for now.
+
+    async def anow(self) -> float:
+        """The current time, in epoch seconds, recorded as this task's effect."""
+        value = time.time()
+        await self._helper.aeffect(EffectKind.NOW, value)
+        return value
+
+    def now(self) -> float:
+        """The current time, in epoch seconds, recorded as this task's effect."""
+        return unkoil(self.anow)
+
+    async def arandom(self, n: int = 16) -> str:
+        """``n`` random bytes, as hex, recorded as this task's effect."""
+        value = secrets.token_hex(n)
+        await self._helper.aeffect(EffectKind.RANDOM, value)
+        return value
+
+    def random(self, n: int = 16) -> str:
+        """``n`` random bytes, as hex, recorded as this task's effect."""
+        return unkoil(self.arandom, n)
+
+    async def asleep(self, seconds: float) -> None:
+        """Sleep for ``seconds``: the deadline is recorded, then slept until."""
+        deadline = time.time() + max(0.0, seconds)
+        await self._helper.aeffect(EffectKind.SLEEP, deadline)
+        await asyncio.sleep(max(0.0, deadline - time.time()))
+
+    def sleep(self, seconds: float) -> None:
+        """Sleep for ``seconds``: the deadline is recorded, then slept until."""
+        deadline = time.time() + max(0.0, seconds)
+        unkoil(self._helper.aeffect, EffectKind.SLEEP, deadline)
+        time.sleep(max(0.0, deadline - time.time()))
 
     # -- calling ---------------------------------------------------------- #
 

@@ -3,10 +3,10 @@
 Registration is not here: it is the transport handshake. ``Register`` carries the agent's
 declaration (:meth:`~rekuest.agents.base.BaseAgent.aget_handshake_params`) and ``Init``
 answers it, so an agent registers by connecting and nothing in its path calls the rekuest
-GraphQL API. What a deployment still varies is where sessions are minted and where shelved
-values are recorded: against a Rekuest server that is the agent's own socket
-(rekuest's ``SocketAgentBackend``), against the in-process FastAPI agent it is a local sink, and
-an agent under test has neither (:class:`LocalAgentBackend`).
+GraphQL API. What a deployment still varies is where sessions are minted: against a Rekuest
+server locally (rekuest's ``SocketAgentBackend``), against the in-process FastAPI agent a
+local sink, and an agent under test has neither (:class:`LocalAgentBackend`). Shelved values
+are the agent's own, recorded as numbered frames, in every deployment.
 
 That difference used to be expressed by *subclassing the agent*, which is why swapping
 deployments meant overriding a handful of unrelated ``BaseAgent`` methods. Here it is a
@@ -20,14 +20,17 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from arkitekt_spec.scalars import Identifier
 
 logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
 class AgentBackend(Protocol):
-    """Where an agent's sessions are minted and its shelved values recorded."""
+    """Where an agent's sessions are minted.
+
+    Shelving is not here: the agent keeps shelved values itself and records them as
+    numbered ``SHELVE``/``UNSHELVE`` frames, whatever its backend.
+    """
 
     @property
     def registered_agent_id(self) -> str | None:
@@ -41,23 +44,9 @@ class AgentBackend(Protocol):
         """Mint the identifier for this run of the agent."""
         ...
 
-    async def ashelve(
-        self,
-        identifier: Identifier,
-        resource_id: str,
-        label: str | None = None,
-        description: str | None = None,
-    ) -> str:
-        """Put a value on the shelve and return its drawer id."""
-        ...
-
-    async def acollect(self, key: str) -> None:
-        """Release a drawer."""
-        ...
-
 
 class LocalAgentBackend(BaseModel):
-    """A backend that keeps nothing anywhere: no id, in-memory sessions, no shelve."""
+    """A backend that keeps nothing anywhere: no id, in-memory sessions."""
 
     @property
     def registered_agent_id(self) -> str | None:
@@ -67,27 +56,6 @@ class LocalAgentBackend(BaseModel):
     async def acreate_session(self) -> str:
         """A fresh identifier per process."""
         return str(uuid.uuid4())
-
-    async def ashelve(
-        self,
-        identifier: Identifier,
-        resource_id: str,
-        label: str | None = None,
-        description: str | None = None,
-    ) -> str:
-        """Not supported: there is no shelve to put anything on."""
-        raise NotImplementedError(
-            "This agent has no shelve. Give it a backend that provides one "
-            "(e.g. SocketAgentBackend) to shelve values."
-        )
-
-    async def acollect(self, key: str) -> None:
-        """Not supported: nothing was ever shelved remotely."""
-        raise NotImplementedError(
-            "This agent has no shelve, so there is nothing to collect."
-        )
-
-
 
 
 __all__ = ["AgentBackend", "LocalAgentBackend"]

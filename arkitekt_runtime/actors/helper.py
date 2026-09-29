@@ -95,6 +95,17 @@ class AssignmentHelper(BaseModel):
             )
         )
 
+    async def aeffect(self, effect: messages.EffectKind, value: float | str) -> None:
+        """Record a value the task took from outside itself (an ``EFFECT``).
+
+        Args:
+            effect (EffectKind): What was taken (the clock, randomness, a deadline).
+            value (float | str): The value taken.
+        """
+        await self.actor.asend(
+            message=messages.Effect(task=self.assignment.task, effect=effect, value=value)
+        )
+
     async def abreakpoint(self) -> bool:
         """Check if the actor needs to break"""
         return await self.actor.abreak(self.assignment.task)

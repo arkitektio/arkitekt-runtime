@@ -44,9 +44,17 @@ from arkitekt_runtime.agents.dataclasses import (
     QueuedAssign,
     QueuedMessage,
     QueuedPatchEvent,
+    QueuedStep,
     RevisedState,
 )
-from arkitekt_runtime.agents.journal import Journal, JournalEntry, TaskGate
+from arkitekt_runtime.agents.journal import (
+    Journal,
+    JournalEntry,
+    TaskGate,
+    is_probe_task,
+    task_of,
+)
+from arkitekt_runtime.task_scope import current_task_id, task_id_scope
 from arkitekt_spec.declare.agents.types import AppContext, T
 from arkitekt_runtime.agents.policy import ConnectionPolicy
 from arkitekt_spec.declare.agents.hooks.registry import (
@@ -77,6 +85,9 @@ logger = logging.getLogger(__name__)
 # that already ran. Redeliveries arrive within the backend's pickup deadline (~a minute), so
 # this only has to cover the tasks that can finish in that time.
 _FINISHED_TASKS_REMEMBERED = 2048
+
+#: What the agent's ordered queue carries.
+QueuedItem = QueuedPatchEvent | QueuedMessage | QueuedAssign | QueuedStep
 
 # ``AppContext``/``RevisedState``/``QueuedPatchEvent`` used to be defined here;
 # they stay importable from this module.
@@ -284,9 +295,7 @@ class BaseAgent(KoiledModel):
         default_factory=lambda: str(uuid.uuid4()),
         description="A unique identifier for the current session. This is used to group patches and snapshots that belong to the same logical session together. By default an agent start a new session when booting up",
     )
-    _event_queue: janus.Queue[QueuedPatchEvent | QueuedMessage | QueuedAssign] | None = (
-        PrivateAttr(default=None)
-    )
+    _event_queue: janus.Queue[QueuedItem] | None = PrivateAttr(default=None)
     """The agent's one ordered path: state patches, task reports, lock changes and the
     session baseline are numbered and handed to the transport from here, in the
     order they were made (see ``docs/journal.md``)."""
@@ -295,9 +304,11 @@ class BaseAgent(KoiledModel):
     _journal: Journal = PrivateAttr(default_factory=Journal)
     _task_gates: dict[str, TaskGate] = PrivateAttr(default_factory=dict)
     """Per task: once its end is reported, its reports and state changes are refused."""
+    _dispatch_tasks: set["asyncio.Task[None]"] = PrivateAttr(default_factory=set)
+    """Reports dispatched from synchronous code that could not be queued."""
     stamps_frames: ClassVar[bool] = True
-    """Whether journaled frames carry ``pos``/``journal_session``/``agent_ts`` on the
-    wire. The served agent adds them only for websocket clients that opt in."""
+    """Whether numbered frames carry ``pos``/``journal_session``/``agent_ts``/``task_step``
+    on the wire. The served agent adds them only for websocket clients that opt in."""
     # message id -> retained terminal event awaiting its EventAck (insertion-ordered dict)
     # Recently finished task ids (insertion-ordered, bounded): lets a redelivered Assign for
     # work that already ran be recognised after ``managed_assignments`` has forgotten it.
@@ -378,9 +389,10 @@ class BaseAgent(KoiledModel):
         """
         await self._areport_lock(messages.Lock(key=key, task=task))
 
-    async def aunlock(self, key: str) -> None:
-        """Tell the backend a task has released a lock. Best-effort, as :meth:`alock`."""
-        await self._areport_lock(messages.Unlock(key=key))
+    async def aunlock(self, key: str, task: str | None = None) -> None:
+        """Tell the backend a task (``task``, the holder) has released a lock.
+        Best-effort, as :meth:`alock`."""
+        await self._areport_lock(messages.Unlock(key=key, task=task))
 
     async def _areport_lock(self, message: "messages.Lock | messages.Unlock") -> None:
         """Send a lock report, logging rather than raising if it cannot go out.
@@ -444,11 +456,15 @@ class BaseAgent(KoiledModel):
             logger.debug("Patch event loop cancelled, shutting down")
             raise
 
-    async def _aprocess_queued(
-        self, item: QueuedPatchEvent | QueuedMessage | QueuedAssign
-    ) -> None:
+    async def _aprocess_queued(self, item: QueuedItem) -> None:
         """Process one item of the ordered queue. Never raises: the queue must keep going."""
-        if isinstance(item, QueuedMessage):
+        if isinstance(item, QueuedStep):
+            if not item.waiter.done():
+                try:
+                    item.waiter.set_result(self._take_step(item.task))
+                except Exception as e:  # noqa: BLE001 — the caller learns, the queue goes on
+                    item.waiter.set_exception(e)
+        elif isinstance(item, QueuedMessage):
             try:
                 await self._aemit(item.message)
             except Exception as e:
@@ -476,6 +492,38 @@ class BaseAgent(KoiledModel):
         except RuntimeError:
             return False
 
+    def _take_step(self, task: str) -> int | None:
+        """Take a task's next step now (on the ordered path)."""
+        return self._journal.take_step(task)
+
+    async def areserve_step(self, task: str) -> int | None:
+        """Take a task's next step for a child call, in order with what the task
+        reported before it; ``None`` when there is none (no session yet, a probe, a
+        task this agent does not run).
+
+        Through the ordered queue: a report the task made just before the call is
+        still waiting there, and must get the earlier step.
+        """
+        if is_probe_task(task):
+            return None
+        queue = self._event_queue
+        if queue is None or self._on_processor():
+            return self._take_step(task)
+        waiter: asyncio.Future[int | None] = asyncio.get_running_loop().create_future()
+        queue.async_q.put_nowait(QueuedStep(task=task, waiter=waiter))
+        return await waiter
+
+    async def areserve_call_step(self, task: str) -> int | None:
+        """The step of ``task`` a child call it makes now takes (its ``ASSIGN_REQUEST``
+        ``parent_step``): the task's next step, ``None`` when there is none to take."""
+        return await self.areserve_step(task)
+
+    async def arecord_effect(
+        self, task: str, effect: messages.EffectKind, value: float | str
+    ) -> None:
+        """Record a value ``task`` took from outside itself (``EFFECT``)."""
+        await self._adispatch(messages.Effect(task=task, effect=effect, value=value))
+
     def publish_patch(self, interface: str, patch: Patch) -> None:
         """Publish a patch to the agent. This is used to publish patches to the
         agent from the actor."""
@@ -498,7 +546,9 @@ class BaseAgent(KoiledModel):
                 state=self.states[interface],
             )
 
-        shrunk_value = await self._ashrink_patch_value(interface, patch)
+        # A value this shrink shelves was shelved by the changing task.
+        with task_id_scope(patch.correlation_id):
+            shrunk_value = await self._ashrink_patch_value(interface, patch)
 
         self._aapply_patch_to_shrunk_state(interface, patch, shrunk_value)
 
@@ -562,17 +612,12 @@ class BaseAgent(KoiledModel):
         )
 
     async def acollect(self, key: str) -> None:
-        """Drop a local drawer and release it on the backend.
-
-        The local drop is what matters; a release the backend cannot take is logged, not
-        raised, so it never takes the message loop down with it.
-        """
-        # An unknown drawer (already dropped, or shelved before a teardown) is a no-op.
+        """Drop a drawer (named by its resource id) and record it: a numbered
+        ``UNSHELVE``. Nothing is awaited from the backend."""
+        # An unknown drawer (already dropped, or shelved before a teardown) is dropped
+        # all the same: the backend may still list it.
         self.shelve.pop(key, None)
-        try:
-            await self.backend.acollect(key)
-        except Exception:
-            logger.warning("Could not release drawer %s on the backend", key, exc_info=True)
+        await self._adispatch(messages.Unshelve(ref=key, drawer=key))
 
     async def _acreate_session(self) -> str:
         """Mint the identifier for this run, however the backend does that."""
@@ -653,53 +698,94 @@ class BaseAgent(KoiledModel):
                 f"No structure registry found for interface {interface}"
             )
 
-    async def ashelve(
+    def _shelve_frame(
         self,
         identifier: Identifier,
-        resource_id: str,
+        value: Any,  # noqa: ANN401
+        label: str | None,
+        description: str | None,
+        task: str | None,
+    ) -> messages.Shelve:
+        """Mint a resource id, keep ``value`` under it, and build its ``SHELVE``.
+
+        A task that has already ended records nothing more: its value is shelved by no
+        task."""
+        gate = self._task_gates.get(task) if task is not None else None
+        if gate is not None and gate.closed:
+            task = None
+        resource_id = uuid.uuid4().hex
+        self.shelve[resource_id] = value
+        return messages.Shelve(
+            ref=resource_id,
+            identifier=str(identifier),
+            resource_id=resource_id,
+            label=label if label else str(value),
+            description=description,
+            task=task,
+        )
+
+    def put_on_shelve(
+        self,
+        identifier: Identifier,
+        value: Any,  # noqa: ANN401
         label: str | None = None,
         description: str | None = None,
-    ) -> str:
-        """Put a value on the backend's shelve and return its drawer key."""
-        return await self.backend.ashelve(
-            identifier=identifier,
-            resource_id=resource_id,
-            label=label,
-            description=description,
+        task: str | None = None,
+    ) -> dict[str, str]:
+        """Shelve a value, at once: the agent mints its ``resource_id`` (uuid4 hex),
+        keeps the value, and sends a numbered ``SHELVE``. Nothing is replied.
+
+        Returns the value's reference, ``{"__identifier": ..., "object": resource_id}``.
+        ``task`` is the task shelving it (by default, the running one).
+        """
+        frame = self._shelve_frame(
+            identifier, value, label, description, task or current_task_id.get()
         )
+        self._dispatch_nowait(frame)
+        return {"__identifier": str(identifier), "object": frame.resource_id}
 
     async def aput_on_shelve(
         self,
         identifier: Identifier,
         value: Any,  # noqa: ANN401
     ) -> str:  # noqa: ANN401
-        """Get the shelve for the agent. This is used to get the shelve
-        for the agent and all the actors that are spawned from it.
+        """Shelve a value (see :meth:`put_on_shelve`) and return its resource id.
+
+        Its label and description are asked of the value first (``aget_label``/
+        ``aget_description``, else ``str(value)``). On the ordered path (shrinking a
+        state patch) the ``SHELVE`` is numbered right away, before the patch that
+        references it.
         """
-
-        if hasattr(value, "aget_label"):
-            label = await value.aget_label()
-        else:
-            label = None
-
-        if hasattr(value, "aget_description"):
-            description = await value.aget_description()
-        else:
-            description = None
-
-        if not label:
-            label = str(value)
-
-        drawer_id = await self.ashelve(
-            identifier=identifier,
-            resource_id=uuid.uuid4().hex,
-            label=label,
-            description=description,
+        label = await value.aget_label() if hasattr(value, "aget_label") else None
+        description = (
+            await value.aget_description() if hasattr(value, "aget_description") else None
         )
+        frame = self._shelve_frame(
+            identifier, value, label, description, current_task_id.get()
+        )
+        await self._adispatch(frame)
+        return frame.resource_id
 
-        self.shelve[drawer_id] = value
-
-        return drawer_id
+    def _dispatch_nowait(self, message: messages.FromAgentMessage) -> None:
+        """Report a message from synchronous code (the loop's, or a worker thread's):
+        queued behind everything before it, or (with no queue to put it on) sent from
+        a task of its own."""
+        try:
+            loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        queue = self._event_queue
+        if loop is None and queue is not None:
+            queue.sync_q.put(QueuedMessage(message=message))  # from a worker thread
+            return
+        if self._enqueue(message):
+            return
+        if loop is None:
+            logger.warning("No running event loop; %s is not reported", message)
+            return
+        task = loop.create_task(self._aemit(message))
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
 
     async def aget_from_shelve(self, key: str) -> Any:  # noqa: ANN401
         """Get a value from the shelve. This is used to get values from the
@@ -861,6 +947,8 @@ class BaseAgent(KoiledModel):
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()
+        # ...and it is this process's: numbered by step (unless it is a probe).
+        self._journal.begin_task(message.task)
         try:
             actor = self.managed_actors.get(message.interface)
             if actor is None:
@@ -1026,9 +1114,7 @@ class BaseAgent(KoiledModel):
         self._provider_ready = True
         self._held_provider_messages.clear()
 
-    def _release_queued_waiters(
-        self, queue: "janus.Queue[QueuedPatchEvent | QueuedMessage | QueuedAssign]"
-    ) -> None:
+    def _release_queued_waiters(self, queue: "janus.Queue[QueuedItem]") -> None:
         """Unblock whoever still waits on a report the stopped processor never sent."""
         dropped = 0
         while True:
@@ -1038,7 +1124,7 @@ class BaseAgent(KoiledModel):
                 break
             queue.async_q.task_done()
             dropped += 1
-            if isinstance(item, QueuedMessage) and item.waiter is not None:
+            if isinstance(item, (QueuedMessage, QueuedStep)) and item.waiter is not None:
                 if not item.waiter.done():
                     item.waiter.set_result(None)
         if dropped:
@@ -1245,10 +1331,7 @@ class BaseAgent(KoiledModel):
 
     def _action_key_for(self, message: messages.Message) -> str | None:
         """The action key of the (still managed) task a message belongs to."""
-        if isinstance(message, messages.StatePatch):
-            task = message.task_id
-        else:
-            task = getattr(message, "task", None)
+        task = task_of(message)
         if task is None:
             return None
         assignment = self.managed_assignments.get(task)
@@ -1259,11 +1342,12 @@ class BaseAgent(KoiledModel):
     async def _aemit(self, message: messages.FromAgentMessage) -> None:
         """Number, record and hand on one message: the single ordered step.
 
-        Every agent→backend event gets a monotonic ``seq`` here, and journaled messages
-        their ``pos``. A runtime whose backend confirms durability retains what it must
-        re-send until then (:meth:`_retain_emitted`; rekuest's socket agent keeps
-        terminal reports until an ``EventAck`` and journaled frames until a
-        ``JournalAck`` -- the persist-then-ack contract).
+        Every agent→backend event gets a monotonic ``seq`` here, and numbered messages
+        their ``pos`` and (a task's) ``task_step``, under the journal's numbering, in
+        the order they are handed on. A runtime whose backend confirms durability
+        retains what it must re-send until then (:meth:`_retain_emitted`; rekuest's
+        socket agent keeps every numbered frame until a ``JournalAck`` covers it).
+        The journal decides what is numbered (a probe's reports are not).
         """
         if isinstance(message, messages.FromAgentEvent):
             self._event_seq += 1
@@ -1276,6 +1360,7 @@ class BaseAgent(KoiledModel):
                     "pos": entry.pos,
                     "journal_session": entry.session_id,
                     "agent_ts": entry.event_time / 1000,
+                    "task_step": entry.step,
                 }
             )
         self._retain_emitted(message, entry)

@@ -131,6 +131,8 @@ class FromAgentMessageType(str, Enum):
     # Shelving: what the agent holds in memory.
     SHELVE = "SHELVE"
     UNSHELVE = "UNSHELVE"
+    # A value a task took from outside itself (the clock, randomness, a deadline).
+    EFFECT = "EFFECT"
     # Caller-issued lifecycle control requests over the socket (mirroring ASSIGN_REQUEST).
     CANCEL_REQUEST = "CANCEL_REQUEST"
     INTERRUPT_REQUEST = "INTERRUPT_REQUEST"
@@ -146,15 +148,17 @@ class Message(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
 
-#: The journal fields a journaled frame carries next to its ``id`` and ``seq``.
-JOURNAL_STAMP_FIELDS = ("pos", "journal_session", "agent_ts")
+#: The journal fields a numbered frame carries next to its ``id`` and ``seq``.
+JOURNAL_STAMP_FIELDS = ("pos", "journal_session", "agent_ts", "task_step")
 
 
 class JournaledMessage(Message):
     """Base for the agent reports the agent's journal numbers (see ``docs/journal.md``).
 
-    Task events, lock changes, state patches, snapshots and the session baseline. A
-    journaled frame sent to a server carries its position in the journal. The fields
+    Task events (effects included), lock changes, state patches, snapshots, the session
+    baseline and shelving. A numbered frame sent to a server carries its position in
+    the session (``pos``) and, when it belongs to a task, its step in that task
+    (``task_step``). The fields
     are left out of the frame entirely while unset, so a frame that is not stamped
     (every frame a FastAPI websocket client that did not opt in receives) is exactly
     what it was before the journal existed. ``Register`` never has them: the server
@@ -172,6 +176,10 @@ class JournaledMessage(Message):
     agent_ts: float | None = Field(
         default=None,
         description="When the agent recorded the frame, in seconds since the epoch.",
+    )
+    task_step: int | None = Field(
+        default=None,
+        description="The frame's step in its task (1, 2, 3, ... per task, shared with the task's child calls). Only on frames of a task. Not ``step``: ``ASSIGN`` has a ``step`` flag.",
     )
 
     @model_serializer(mode="wrap")
@@ -572,10 +580,33 @@ class Unlock(JournaledMessage):
     """An unlock message
 
     Sent when the agent wants to release a distributed lock on the rekuest backend.
+    ``task`` names the task that held it.
     """
 
     type: Literal[FromAgentMessageType.UNLOCK] = FromAgentMessageType.UNLOCK
     key: str
+    task: str | None = Field(default=None, description="The task that held the lock.")
+
+
+class EffectKind(str, Enum):
+    """What a task took from outside itself (see ``Effect``)."""
+
+    NOW = "NOW"
+    """The clock: ``value`` is epoch seconds (float)."""
+    RANDOM = "RANDOM"
+    """Random bytes: ``value`` is their hex."""
+    SLEEP = "SLEEP"
+    """A sleep: ``value`` is its deadline, in epoch seconds (float)."""
+
+
+class Effect(FromAgentEvent):
+    """A value a task took from outside itself, recorded so that a replay can return
+    the same value instead of taking a new one. Record-only for now."""
+
+    type: Literal[FromAgentMessageType.EFFECT] = FromAgentMessageType.EFFECT
+    task: str
+    effect: EffectKind
+    value: float | str
 
 
 class AssignInquiry(BaseModel):
@@ -656,10 +687,6 @@ class Init(Message):
         default_factory=list,
         description="Non-fatal findings of the registration the Register carried; the agent surfaces them as CatalogWarnings.",
     )
-    journal: bool = Field(
-        default=False,
-        description="The backend persists journal positions and acknowledges them with JOURNAL_ACK. The agent then retains every journaled frame until an ack covers it, and re-sends them in order after a reconnect.",
-    )
 
 
 class RegistrationDiagnostic(BaseModel):
@@ -672,29 +699,32 @@ class RegistrationDiagnostic(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Shelving — request/reply pairs over the agent socket, like AssignRequest/
-# AssignResponse: the agent asks, the backend answers with the past-tense twin,
-# correlated by the client-minted ``ref``. Replies carry ``error`` instead of
-# closing the socket.
+# Shelving — numbered frames: the agent mints the drawer's id (``resource_id``)
+# itself, and nothing is replied (``JOURNAL_ACK`` covers them). ``Shelved`` and
+# ``Unshelved`` are what older servers answer; the agent ignores them.
 # --------------------------------------------------------------------------- #
 
 
-class Shelve(Message):
-    """Record that the agent holds a value in memory: a drawer on its shelve."""
+class Shelve(JournaledMessage):
+    """Record that the agent holds a value in memory: a drawer on its shelve, named by
+    the ``resource_id`` the agent minted (``ref`` is the same id)."""
 
     type: Literal[FromAgentMessageType.SHELVE] = FromAgentMessageType.SHELVE
     ref: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="Client-minted correlation id, echoed on Shelved.",
+        description="The resource id again (older servers echo it on Shelved).",
     )
     identifier: str
     resource_id: str
     label: str | None = None
     description: str | None = None
+    task: str | None = Field(
+        default=None, description="The task that shelved the value, if one did."
+    )
 
 
 class Shelved(Message):
-    """The backend's answer to ``Shelve``: the drawer's id, or why there is none."""
+    """An older backend's answer to ``Shelve`` (ignored)."""
 
     type: Literal[ToAgentMessageType.SHELVED] = ToAgentMessageType.SHELVED
     ref: str
@@ -702,19 +732,20 @@ class Shelved(Message):
     error: str | None = None
 
 
-class Unshelve(Message):
-    """The agent dropped a drawer (answering ``Collect``, or on its own)."""
+class Unshelve(JournaledMessage):
+    """The agent dropped a drawer (answering ``Collect``, or on its own); ``drawer`` is
+    its resource id."""
 
     type: Literal[FromAgentMessageType.UNSHELVE] = FromAgentMessageType.UNSHELVE
     ref: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="Client-minted correlation id, echoed on Unshelved.",
+        description="Client-minted id (the resource id, by convention).",
     )
     drawer: str
 
 
 class Unshelved(Message):
-    """The backend's answer to ``Unshelve``."""
+    """An older backend's answer to ``Unshelve`` (ignored)."""
 
     type: Literal[ToAgentMessageType.UNSHELVED] = ToAgentMessageType.UNSHELVED
     ref: str
@@ -731,14 +762,17 @@ class AssignRequest(Message):
 
     Creation safety is by **idempotency, not transport**: ``reference`` must be stable for
     a logical request, so a resend after reconnect returns the same task (see
-    ``AssignResponse``) rather than creating a duplicate.
+    ``AssignResponse``) rather than creating a duplicate. A child call of a numbering
+    agent also carries the parent's step it took (``parent_step``), and is idempotent on
+    ``(parent, parent_step)`` as well.
     """
 
     type: Literal[FromAgentMessageType.ASSIGN_REQUEST] = (
         FromAgentMessageType.ASSIGN_REQUEST
     )
-    reference: str = Field(
-        description="Caller-supplied idempotency key. Stable across resends of the same logical request."
+    reference: str | None = Field(
+        default=None,
+        description="Caller-supplied idempotency key, stable across resends of the same logical request; idempotent on (caller, reference). The caller's own: the server never derives it. Minted by the server when omitted.",
     )
     args: dict[str, ShallowJSONSerializable] = Field(
         default_factory=dict, description="The args of the task (ports → values)."
@@ -761,6 +795,10 @@ class AssignRequest(Message):
     parent: str | None = Field(
         default=None,
         description="The parent task ID. None for a root task (requires can_assign_root).",
+    )
+    parent_step: int | None = Field(
+        default=None,
+        description="The parent's step this call takes (numbering agents). With it, the request is idempotent on (parent, parent_step): a call re-issued after a restart returns the same child, whatever its reference. Stored as the child's parent_step. Not ``task_step``: that is the envelope's journal stamp.",
     )
     dependency: str | None = Field(
         default=None,
@@ -797,13 +835,15 @@ class AssignResponse(Message):
         ToAgentMessageType.ASSIGN_RESPONSE
     )
     request: str = Field(description="The id of the AssignRequest this result answers.")
-    reference: str = Field(description="The idempotency key echoed from the request.")
+    reference: str = Field(
+        description="The task's reference: the request's, or the one the server minted when the request had none."
+    )
     task: str | None = Field(
         default=None, description="The durable task id, or None when error is set."
     )
     created: bool = Field(
         default=True,
-        description="False when an existing task was returned for a duplicate reference.",
+        description="False when an existing task was returned (a duplicate reference, or a (parent, parent_step) already taken).",
     )
     error: str | None = Field(
         default=None,
@@ -938,9 +978,9 @@ class ControlResponse(Message):
 class EventAck(Message):
     """Backend → agent acknowledgement that a reported event was made durable.
 
-    The agent retains terminal reports (completed/failed/critical/cancelled) until it receives
-    the matching ``EventAck`` and resends them on reconnect; this ack (persist-then-ack)
-    is what makes that retain-and-resend safe. Correlates by the acked event's id.
+    Legacy: an agent that numbers its frames retires them on ``JournalAck`` alone, and
+    the server stops sending this once a connection has sent a numbered frame. Parsed,
+    and ignored.
     """
 
     type: Literal[ToAgentMessageType.EVENT_ACK] = ToAgentMessageType.EVENT_ACK
@@ -956,10 +996,11 @@ class EventAck(Message):
 
 
 class JournalAck(Message):
-    """Backend → agent: everything of ``journal_session`` up to ``pos`` is persisted.
+    """Backend → agent: everything of ``journal_session`` up to ``pos`` is projected.
 
-    Cumulative. Only sent by a backend that announced ``journal`` on ``Init``, and only
-    once the agent has sent it a ``pos``-carrying frame.
+    Cumulative, and the only thing that retires a numbered frame the agent retains
+    (terminal reports included: the server sends no ``EventAck`` on a connection that
+    has sent a numbered frame).
     """
 
     type: Literal[ToAgentMessageType.JOURNAL_ACK] = ToAgentMessageType.JOURNAL_ACK
@@ -1151,8 +1192,7 @@ ExecutionEventMessage = (
 )
 
 
-#: Terminal agent→backend reports. Retained until the backend acknowledges them with an
-#: ``EventAck`` (persist-then-ack) and resent on reconnect.
+#: Terminal agent→backend reports: they close their task's gate.
 TERMINAL_REPORTS = (
     Completed,
     Failed,
@@ -1222,4 +1262,5 @@ FromAgentMessage = (
     | ResumeRequest
     | Shelve
     | Unshelve
+    | Effect
 )

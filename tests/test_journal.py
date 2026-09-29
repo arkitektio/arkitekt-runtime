@@ -115,6 +115,7 @@ def test_numbers_and_folds() -> None:
 
 def test_the_entry_json_matches_the_contract() -> None:
     journal = Journal(session="s")
+    journal.begin_task("t")
     entry = journal.append(messages.Log(task="t", message="hi"), "act")
     assert entry is not None
     assert list(entry.to_json()) == [
@@ -128,9 +129,11 @@ def test_the_entry_json_matches_the_contract() -> None:
         "subject",
         "message_id",
         "payload",
+        "step",
     ]
     assert entry.payload["id"] == entry.message_id
     assert entry.frame()["pos"] == 1 and entry.frame()["journal_session"] == "s"
+    assert entry.step == 1 and entry.frame()["task_step"] == 1
     assert entry.route() == ("action", "act")
 
 
@@ -350,11 +353,13 @@ def test_unstamped_frames_are_unchanged() -> None:
 
 
 def test_init_and_journal_ack_parse() -> None:
-    init = messages.Init(agent="a")
-    assert init.journal is False
+    """Every agent numbers its frames: ``Init`` no longer gates the journal (an older
+    server's ``journal`` flag is ignored)."""
+    assert "journal" not in messages.Init.model_fields
     from pydantic import TypeAdapter
 
     adapter: TypeAdapter[messages.ToAgentMessage] = TypeAdapter(messages.ToAgentMessage)
     ack = adapter.validate_python({"type": "JOURNAL_ACK", "journal_session": "s", "pos": 3})
     assert isinstance(ack, messages.JournalAck) and ack.pos == 3
-    assert adapter.validate_python({"type": "INIT", "agent": "a", "journal": True}).journal  # type: ignore[union-attr]
+    init = adapter.validate_python({"type": "INIT", "agent": "a", "journal": True})
+    assert isinstance(init, messages.Init)

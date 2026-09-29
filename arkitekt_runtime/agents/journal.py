@@ -1,9 +1,20 @@
 """One ordered record of everything an agent reports.
 
-Task events (``PROGRESS``, ``YIELD``, ``COMPLETED``, ...), lock changes, state
-patches, snapshots, the session baseline and (when served) the ``ASSIGN`` that
-started a task each get a position ``pos`` in their session. ``pos`` starts at 1
-with ``SESSION_INIT`` and has no gaps; ``(session_id, pos)`` is the durable key.
+Task events (``PROGRESS``, ``YIELD``, ``COMPLETED``, ``EFFECT``, ...), lock
+changes, state patches, snapshots, the session baseline, shelving and (when
+served) the ``ASSIGN`` that started a task each get a position ``pos`` in their
+session. ``pos`` starts at 1 with ``SESSION_INIT`` and has no gaps;
+``(session_id, pos)`` is the durable key.
+
+Everything a task this process runs (:meth:`Journal.begin_task`) did is also
+numbered per task: its ``step`` (``task_step`` on the wire), 1, 2, 3, ... over the
+task's reports, patches, locks, shelves and effects, and the child calls it makes
+(:meth:`Journal.take_step`), without gaps. The ``ASSIGN`` record of a served agent
+takes no step: ``STARTED`` is step 1. A report about a task this process never ran
+(answering an inquiry about a predecessor's task) gets a ``pos`` but no step.
+
+A probe (a ``p-`` task id) is ephemeral: its reports are never numbered. A state
+patch it causes is (the state changed all the same), without a step.
 Every entry also carries the state revision ``global_rev`` as of that entry, so
 "the world at ``pos``" is the state at ``global_rev`` plus the tasks and locks
 folded from the entries up to ``pos``.
@@ -14,8 +25,8 @@ so the order entries are delivered in is the order they are numbered in, and the
 order they were made in: a task's patches come before its ``YIELD``, its
 ``COMPLETED`` before its ``UNLOCK``.
 
-This module is the Python side of the contract in ``docs/journal.md``; the Rust
-agent (``rekuest`` crate, ``journal.rs``) implements the same.
+This module is the Python side of the contract in rekuest's
+``docs/design/journal.md``; the Rust agent (``rekuest`` crate) implements the same.
 """
 
 import asyncio
@@ -52,7 +63,9 @@ __all__ = [
     "Watermark",
     "entry_matches",
     "iso_from_ms",
+    "is_probe_task",
     "is_terminal_kind",
+    "task_of",
     "world_from_entries",
 ]
 
@@ -89,8 +102,13 @@ JOURNALED_KINDS = frozenset(
         "STATE_PATCH",
         "STATE_SNAPSHOT",
         "SESSION_INIT",
+        "EFFECT",
+        "SHELVE",
+        "UNSHELVE",
     }
 )
+#: The id prefix of a probe task: ephemeral, never numbered.
+PROBE_PREFIX = "p-"
 
 
 def now_ms() -> int:
@@ -115,6 +133,26 @@ def kind_of(message: messages.Message) -> str:
     """The wire ``type`` of a message."""
     kind = getattr(message, "type", "")
     return str(getattr(kind, "value", kind))
+
+
+def is_probe_task(task: str | None) -> bool:
+    """Whether a task id is a probe's (``p-…``): its frames are never numbered."""
+    return task is not None and task.startswith(PROBE_PREFIX)
+
+
+def task_of(message: messages.Message) -> str | None:
+    """The task a frame belongs to, as far as the frame itself says.
+
+    ``STATE_PATCH``: the changing task; ``UNLOCK``: the holder; ``SHELVE``: the task
+    that shelved (if any). ``UNSHELVE``, ``SESSION_INIT`` and ``STATE_SNAPSHOT``
+    belong to no task.
+    """
+    if isinstance(message, messages.StatePatch):
+        return message.task_id
+    if isinstance(message, (messages.Unshelve, messages.SessionInit, messages.StateSnapshot)):
+        return None
+    task = getattr(message, "task", None)
+    return task if isinstance(task, str) else None
 
 
 # ------------------------------------------------------------------ entry --
@@ -146,6 +184,9 @@ class JournalEntry:
     """The frame's ``id``, as sent."""
     payload: dict[str, Any]
     """The frame, without the stream-level ``seq``."""
+    step: int | None = None
+    """The entry's step in its task (``task_step`` on the wire); ``None`` for entries
+    of no task, and for a served agent's ``ASSIGN`` record."""
 
     @property
     def timepoint(self) -> str:
@@ -168,6 +209,7 @@ class JournalEntry:
             "subject": self.subject,
             "message_id": self.message_id,
             "payload": self.payload,
+            "step": self.step,
         }
 
     def frame(self) -> dict[str, Any]:
@@ -188,10 +230,12 @@ class JournalEntry:
 
 
 def stamp(frame: dict[str, Any], entry: JournalEntry) -> dict[str, Any]:
-    """Add ``pos`` and ``journal_session`` to a frame. (Not ``session_id``: state
-    frames already have one, and it would clash.)"""
+    """Add ``pos``, ``journal_session`` and (for a task's entry) ``task_step`` to a
+    frame. (Not ``session_id``: state frames already have one, and it would clash.)"""
     frame["pos"] = entry.pos
     frame["journal_session"] = entry.session_id
+    if entry.step is not None:
+        frame["task_step"] = entry.step
     return frame
 
 
@@ -333,7 +377,7 @@ class Fold:
         task_id = entry.task_id
         if task_id is None:
             return
-        if kind in ("STATE_PATCH", "LOCK", "UNLOCK"):
+        if kind in ("STATE_PATCH", "LOCK", "UNLOCK", "SHELVE"):
             known = self.tasks.get(task_id)
             if known is not None:
                 known.last_pos = max(known.last_pos, entry.pos)
@@ -553,6 +597,8 @@ class Journal:
         self._global_rev = 0
         self._ring: deque[JournalEntry] = deque(maxlen=ring_capacity)
         self._fold = Fold()
+        self._steps: dict[str, int] = {}
+        """Per task: the last step numbered (entries and child calls)."""
         self._finished: deque[str] = deque()
         self._finished_keep = finished_keep
         self._listeners: list[JournalListener] = []
@@ -595,6 +641,35 @@ class Journal:
         """Be told about every new entry, under the lock, in ``pos`` order."""
         self._listeners.append(listener)
 
+    def step_of(self, task: str) -> int:
+        """The last step numbered for a task (0 before its first)."""
+        with self._lock:
+            return self._steps.get(task, 0)
+
+    def begin_task(self, task: str) -> None:
+        """This process runs ``task`` from now on: its entries are numbered by step.
+        (A probe's never are.)"""
+        with self._lock:
+            if not is_probe_task(task):
+                self._steps.setdefault(task, 0)
+
+    def take_step(self, task: str) -> int | None:
+        """Take a task's next step for something that is not an entry: a child call,
+        whose record is the child task (sent as its ``ASSIGN_REQUEST``'s ``parent_step``).
+
+        ``None`` before the first session, for a probe, and for a task this process
+        does not run.
+        """
+        with self._lock:
+            if self._session is None or task not in self._steps:
+                return None
+            return self._next_step(task)
+
+    def _next_step(self, task: str) -> int:
+        step = self._steps.get(task, 0) + 1
+        self._steps[task] = step
+        return step
+
     # -- recording ------------------------------------------------------------
 
     def append(
@@ -617,22 +692,34 @@ class Journal:
             elif isinstance(message, (messages.StatePatch, messages.StateSnapshot)):
                 self._global_rev = message.global_rev
 
-            task_id: str | None
+            task_id = task_of(message)
+            if is_probe_task(task_id) and not isinstance(message, messages.StatePatch):
+                return None
             subject: str | None = None
             if isinstance(message, messages.StatePatch):
-                task_id, subject = message.task_id, message.state_name
+                subject = message.state_name
             elif isinstance(message, messages.Lock):
-                task_id, subject = message.task, message.key
+                subject = message.key
             elif isinstance(message, messages.Unlock):
-                task_id, subject = self._fold.locks.get(message.key), message.key
-            else:
-                task_id = getattr(message, "task", None)
+                subject = message.key
+                if task_id is None:
+                    task_id = self._fold.locks.get(message.key)
             return self._append(
-                kind, task_id, action_key, subject, payload_of(message), message.id, message
+                kind,
+                task_id,
+                action_key,
+                subject,
+                payload_of(message),
+                message.id,
+                message,
+                numbered_step=task_id is not None and task_id in self._steps,
             )
 
     def record_assign(self, assign: messages.Assign, action_key: str) -> JournalEntry | None:
-        """Record the assignment that starts a task (secrets removed)."""
+        """Record the assignment that starts a task (secrets removed). It takes no
+        step (the task's ``STARTED`` is step 1), and a probe's is not recorded."""
+        if assign.probe or is_probe_task(assign.task):
+            return None
         payload = assign.model_dump(mode="json")
         payload.pop("token", None)
         payload["type"] = "ASSIGN"
@@ -648,11 +735,13 @@ class Journal:
         payload: dict[str, Any],
         message_id: str,
         message: messages.Message | None,
+        numbered_step: bool = False,
     ) -> JournalEntry | None:
         session = self._session
         if session is None:
             return None
         self._pos += 1
+        step = self._next_step(task_id) if numbered_step and task_id is not None else None
         payload["id"] = message_id
         if action_key is None and task_id is not None:
             known = self._fold.tasks.get(task_id)
@@ -668,12 +757,16 @@ class Journal:
             subject=subject,
             message_id=message_id,
             payload=payload,
+            step=step,
         )
         self._fold.apply(entry)
         if entry.is_terminal and task_id is not None:
             self._finished.append(task_id)
             if len(self._finished) > self._finished_keep:
-                self._fold.tasks.pop(self._finished.popleft(), None)
+                # Its UNLOCKs came long ago: the steps can go with the fold.
+                forgotten = self._finished.popleft()
+                self._fold.tasks.pop(forgotten, None)
+                self._steps.pop(forgotten, None)
         self._ring.append(entry)
         self._persist(entry)
         for listener in self._listeners:
