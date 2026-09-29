@@ -608,6 +608,8 @@ class Effect(FromAgentEvent):
     task: str
     effect: EffectKind
     value: float | str
+    key: str | None = None
+    """What the task calls this value (by default the kind and occurrence, ``NOW:1``)."""
 
 
 class AssignInquiry(BaseModel):
@@ -800,6 +802,10 @@ class AssignRequest(Message):
     parent_step: int | None = Field(
         default=None,
         description="The parent's step this call takes (numbering agents). With it, the request is idempotent on (parent, parent_step): a call re-issued after a restart returns the same child, whatever its reference. Stored as the child's parent_step. Not ``task_step``: that is the envelope's journal stamp.",
+    )
+    call_key: str | None = Field(
+        default=None,
+        description="What the parent calls this child: its own key, or one derived from the target, args and occurrence. Idempotent on (parent, call_key), checked before the step: concurrent calls reserve steps in no fixed order.",
     )
     dependency: str | None = Field(
         default=None,

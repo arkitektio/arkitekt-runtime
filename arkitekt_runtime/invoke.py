@@ -75,6 +75,7 @@ async def _aiterate_raw(
     capture: bool = False,
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
+    call_key: str | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the raw YIELD payloads of a remote call.
 
@@ -92,6 +93,7 @@ async def _aiterate_raw(
         parent=_resolve_parent(parent),
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
+        call_key=call_key,
     ):
         yield returns
 
@@ -108,6 +110,7 @@ async def _acall_raw(
     capture: bool = False,
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
+    call_key: str | None = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload, whatever the action returned
     """Run a call with already-serialized arguments and return the final YIELD payload.
 
@@ -127,6 +130,7 @@ async def _acall_raw(
         capture=capture,
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
+        call_key=call_key,
     ):
         returns = r
     return returns
@@ -143,6 +147,7 @@ async def _acall(
     capture: bool = False,
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
+    call_key: str | None = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
     """Call an action and return its expanded result.
@@ -168,6 +173,7 @@ async def _acall(
         capture=capture,
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
+        call_key=call_key,
     )
     returns = await aexpand_returns(
         action, raw_returns, structure_registry=structure_registry
@@ -188,6 +194,7 @@ async def _aiterate(
     capture: bool = False,
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
+    call_key: str | None = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator action's yields, each one expanded."""
@@ -207,6 +214,7 @@ async def _aiterate(
         capture=capture,
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
+        call_key=call_key,
     ):
         returns = await aexpand_returns(
             action, raw_returns, structure_registry=structure_registry

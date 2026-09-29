@@ -232,6 +232,8 @@ async def test_effects_are_recorded_as_numbered_task_steps(func: Any) -> None:  
 
     effects = transport.of_type(messages.Effect)
     assert [e.effect for e in effects] == ["NOW", "RANDOM", "SLEEP"]
+    # What a replay matches them by: the kind and its occurrence in the task.
+    assert [e.key for e in effects] == ["NOW:1", "RANDOM:1", "SLEEP:1"]
     now, drawn, sleep = effects
     assert isinstance(now.value, float) and abs(now.value - time.time()) < 60
     assert drawn.value == returns["return0"]
@@ -248,6 +250,7 @@ async def test_effects_are_recorded_as_numbered_task_steps(func: Any) -> None:  
         "task",
         "effect",
         "value",
+        "key",
         "pos",
         "journal_session",
         "agent_ts",

@@ -1,7 +1,7 @@
 """The AssignmentHelper is a helper class that is used to manage the assignment"""
 
 from typing import Any, Protocol, Self, runtime_checkable
-from pydantic import BaseModel, ConfigDict
+from pydantic import PrivateAttr, BaseModel, ConfigDict
 from enum import Enum
 
 from arkitekt_spec.declare.task import LogLevel
@@ -30,6 +30,7 @@ class AssignmentHelper(BaseModel):
     assignment: messages.Assign
     actor: Actor
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    _effect_occurrences: dict[Any, int] = PrivateAttr(default_factory=dict)
 
     @property
     def agent(self) -> Any:  # noqa: ANN401 - ActorContext
@@ -95,15 +96,22 @@ class AssignmentHelper(BaseModel):
             )
         )
 
-    async def aeffect(self, effect: messages.EffectKind, value: float | str) -> None:
+    async def aeffect(
+        self, effect: messages.EffectKind, value: float | str, key: str | None = None
+    ) -> None:
         """Record a value the task took from outside itself (an ``EFFECT``).
 
         Args:
             effect (EffectKind): What was taken (the clock, randomness, a deadline).
             value (float | str): The value taken.
+            key (str | None): What the task calls it; by default the kind and its
+                occurrence in this task (``NOW:1``, ``NOW:2``), which a replay matches on.
         """
+        if key is None:
+            self._effect_occurrences[effect] = self._effect_occurrences.get(effect, 0) + 1
+            key = f"{getattr(effect, 'value', effect)}:{self._effect_occurrences[effect]}"
         await self.actor.asend(
-            message=messages.Effect(task=self.assignment.task, effect=effect, value=value)
+            message=messages.Effect(task=self.assignment.task, effect=effect, value=value, key=key)
         )
 
     async def abreakpoint(self) -> bool:

@@ -196,6 +196,7 @@ class Task:
         capture: bool = False,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
@@ -204,6 +205,12 @@ class Task:
         no client, so it cannot look one up by id or by registered function: take a
         ``rekuest: Rekuest`` parameter, ``await rekuest.aresolve(target)``, and pass the
         result here.
+
+        ``call_key`` is what this task calls the child. A workflow that resumes finds the
+        child again by it, and gets its result instead of running it twice. Without one,
+        it is derived from the target, the args and how often this task made that call:
+        pass your own when concurrent calls to the same target with the same args must
+        be told apart (a flow engine names them by node).
         """
         from arkitekt_runtime.invoke import _acall
 
@@ -219,6 +226,7 @@ class Task:
             capture=capture,
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
+            call_key=call_key,
             **kwargs,
         )
 
@@ -241,6 +249,7 @@ class Task:
         capture: bool = False,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "AsyncGenerator[Any, None]":
         """Stream a generator action's yields as a child of this task."""
@@ -258,6 +267,7 @@ class Task:
             capture=capture,
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
+            call_key=call_key,
             **kwargs,
         ):
             yield value
@@ -283,6 +293,7 @@ class Task:
         capture: bool = False,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
     ) -> Any:  # noqa: ANN401 -- the raw backend payload
         """Call with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _acall_raw
@@ -299,6 +310,7 @@ class Task:
             capture=capture,
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
+            call_key=call_key,
         )
 
     async def aiterate_raw(
@@ -312,6 +324,7 @@ class Task:
         capture: bool = False,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
     ) -> "AsyncGenerator[Any, None]":
         """Stream with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _aiterate_raw
@@ -328,6 +341,7 @@ class Task:
             capture=capture,
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
+            call_key=call_key,
         ):
             yield value
 

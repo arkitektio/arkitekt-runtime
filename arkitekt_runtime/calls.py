@@ -66,6 +66,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     method: str | None = None,
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
+    call_key: str | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the YIELD payloads of a task, returning on DONE.
 
@@ -92,6 +93,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         method=method,
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
+        call_key=call_key,
     ):
         if i.kind == TaskEventKind.YIELD:
             yield i.returns

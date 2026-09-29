@@ -142,6 +142,7 @@ class NoCallerPostman:
         method: str | None = None,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
     ) -> "AsyncGenerator[TaskEventLike, None]":
         """Refuse the call.
 

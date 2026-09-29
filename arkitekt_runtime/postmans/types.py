@@ -74,6 +74,7 @@ class Postman(Protocol):
         method: str | None = None,
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
+        call_key: str | None = None,
     ) -> AsyncGenerator[TaskEventLike, None]:
         """Originate a task and stream its events.
 
@@ -110,6 +111,9 @@ class Postman(Protocol):
                 cancel timeout.
             cancel_timeout: Per-call override (seconds) for how long to await the
                 cancel/interrupt confirmation. Falls back to the postman's default
+                when ``None``.
+            call_key: What the parent calls this child, which a resuming workflow finds
+                it again by. Only the agent socket can express this; it derives one
                 when ``None``.
 
         Raises:
