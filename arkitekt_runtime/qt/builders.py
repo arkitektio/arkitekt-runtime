@@ -49,7 +49,7 @@ class QtInLoopBuilder(QtCore.QObject):
         *args,  # noqa: ANN002
         parent: QtWidgets.QWidget | None = None,
         definition: DefinitionInput = None,
-        **actor_kwargs: dict,
+        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)
@@ -110,7 +110,7 @@ class QtFutureBuilder(QtCore.QObject):
         *args,  # noqa: ANN002
         parent: QtWidgets.QWidget | None = None,
         definition: DefinitionInput = None,
-        **actor_kwargs: dict,
+        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)
@@ -161,7 +161,7 @@ class QtGeneratorBuilder(QtCore.QObject):
         parent: QtWidgets.QWidget | None = None,
         structure_registry: StructureRegistry | None = None,
         definition: DefinitionInput | None = None,
-        **actor_kwargs: dict,
+        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)
