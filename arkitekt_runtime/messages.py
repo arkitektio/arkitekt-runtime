@@ -100,6 +100,7 @@ class ToAgentMessageType(str, Enum):
     RESUMED_EVENT = "RESUMED_EVENT"
     FAILED_EVENT = "FAILED_EVENT"
     CRITICAL_EVENT = "CRITICAL_EVENT"
+    LOST_EVENT = "LOST_EVENT"
     # Ack for a caller's lifecycle-control request (cancel/interrupt/pause/resume).
     CONTROL_RESPONSE = "CONTROL_RESPONSE"
 
@@ -1168,6 +1169,20 @@ class CriticalEvent(ExecutionEvent):
     error: str | None = None
 
 
+class LostEvent(ExecutionEvent):
+    """The agent running the task died while it ran: not failed, how it ended is unknown.
+
+    Carries what is known, for whoever decides what to do: whether it was ever picked up
+    (if not, nothing ran), the last progress it reported, and its implementation's effects.
+    """
+
+    type: Literal[ToAgentMessageType.LOST_EVENT] = ToAgentMessageType.LOST_EVENT
+    started: bool = True
+    last_progress: int | None = None
+    effects: str | None = None
+    reason: str | None = None
+
+
 # Every backend→caller mirror, in TaskEventKind order. Imported by ``facade.caller_events``.
 ExecutionEventMessage = (
     BoundEvent
@@ -1189,6 +1204,7 @@ ExecutionEventMessage = (
     | ResumedEvent
     | FailedEvent
     | CriticalEvent
+    | LostEvent
 )
 
 
@@ -1210,6 +1226,7 @@ TERMINAL_EVENT_MIRRORS = (
     CriticalEvent,
     CancelledEvent,
     InterruptedEvent,
+    LostEvent,
 )
 
 

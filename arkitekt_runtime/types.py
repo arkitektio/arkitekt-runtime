@@ -48,6 +48,8 @@ class TaskEventKind(str, Enum):
     RESUMED = 'RESUMED'
     FAILED = 'FAILED'
     CRITICAL = 'CRITICAL'
+    LOST = 'LOST'
+    LATE_REPORT = 'LATE_REPORT'
     __str__ = str.__str__
 
 

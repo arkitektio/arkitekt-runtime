@@ -23,7 +23,7 @@ from arkitekt_runtime.types import (
     HookInput,
     TaskEventKind,
 )
-from arkitekt_spec.declare.errors import CriticalCallError, ErrorCallError
+from arkitekt_spec.declare.errors import AgentLost, CriticalCallError, ErrorCallError
 from arkitekt_runtime.messages import Assign, JSONSerializable
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_spec.declare.structures.registry import StructureRegistry
@@ -76,6 +76,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     Raises:
         ErrorCallError: If the backend reports a task error.
         CriticalCallError: If the backend reports a critical task error.
+        AgentLost: If the agent running the task died while it ran.
         RootOnlyAssignError: If a ``parent``/``dependency``/``method`` call is routed
             to a postman that can only create root tasks.
     """
@@ -104,14 +105,18 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         if i.kind == TaskEventKind.CRITICAL:
             raise CriticalCallError(i.message)
 
+        # Not a failure: the agent running it died, and how it ended is unknown. Whoever
+        # called decides, with what is known (``AgentLost.started`` and friends).
+        if i.kind == TaskEventKind.LOST:
+            raise AgentLost.from_details(getattr(i, "value", None), message=i.message)
+
         # CANCELLED and INTERRUPTED are terminal too. Somebody else (a user in the UI,
         # an interrupt cascading down a tree) can end a task this call is waiting on;
         # without these arms the stream simply never ended and the caller hung forever.
         # The agent-side postman surfaces them the same way (``agents.caller._adapt``).
         #
-        # DISCONNECTED is deliberately NOT terminal: the task's fate is unknown and its
-        # agent may still come back and report the real outcome. The backend bounds that
-        # wait itself (``disconnected_expiry`` → CRITICAL), so this cannot hang forever.
+        # DISCONNECTED is not terminal: the server no longer writes it (a lost agent ends
+        # its task LOST, above); rows from before that still end LOST on expiry.
         if i.kind in (TaskEventKind.CANCELLED, TaskEventKind.INTERRUPTED):
             raise CriticalCallError(
                 i.message
