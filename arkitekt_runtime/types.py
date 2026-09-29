@@ -33,7 +33,6 @@ class TaskEventKind(str, Enum):
     PROGRESS = 'PROGRESS'
     DELEGATE = 'DELEGATE'
     UNASSIGN = 'UNASSIGN'
-    DISCONNECTED = 'DISCONNECTED'
     YIELD = 'YIELD'
     COMPLETED = 'COMPLETED'
     LOG = 'LOG'

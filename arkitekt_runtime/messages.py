@@ -87,7 +87,6 @@ class ToAgentMessageType(str, Enum):
     STARTED_EVENT = "STARTED_EVENT"
     PROGRESS_EVENT = "PROGRESS_EVENT"
     DELEGATE_EVENT = "DELEGATE_EVENT"
-    DISCONNECTED_EVENT = "DISCONNECTED_EVENT"
     YIELD_EVENT = "YIELD_EVENT"
     COMPLETED_EVENT = "COMPLETED_EVENT"
     LOG_EVENT = "LOG_EVENT"
@@ -1133,15 +1132,6 @@ class DelegateEvent(ExecutionEvent):
     type: Literal[ToAgentMessageType.DELEGATE_EVENT] = ToAgentMessageType.DELEGATE_EVENT
 
 
-class DisconnectedEvent(ExecutionEvent):
-    """The executing agent disconnected; the task's fate is (for now) unknown."""
-
-    type: Literal[ToAgentMessageType.DISCONNECTED_EVENT] = (
-        ToAgentMessageType.DISCONNECTED_EVENT
-    )
-    message: str | None = None
-
-
 class YieldEvent(ExecutionEvent):
     """The executing agent yielded a result."""
 
@@ -1256,7 +1246,6 @@ ExecutionEventMessage = (
     | StartedEvent
     | ProgressEvent
     | DelegateEvent
-    | DisconnectedEvent
     | YieldEvent
     | CompletedEvent
     | LogEvent

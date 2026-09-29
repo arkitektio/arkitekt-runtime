@@ -116,9 +116,6 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         # an interrupt cascading down a tree) can end a task this call is waiting on;
         # without these arms the stream simply never ended and the caller hung forever.
         # The agent-side postman surfaces them the same way (``agents.caller._adapt``).
-        #
-        # DISCONNECTED is not terminal: the server no longer writes it (a lost agent ends
-        # its task LOST, above); rows from before that still end LOST on expiry.
         if i.kind in (TaskEventKind.CANCELLED, TaskEventKind.INTERRUPTED):
             raise CriticalCallError(
                 i.message
