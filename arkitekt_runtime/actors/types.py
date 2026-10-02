@@ -22,6 +22,7 @@ from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from arkitekt_spec.declare.app import AppRegistry
+    from arkitekt_runtime.agents.connection import ConnectionListener
     from arkitekt_runtime.agents.lock import TaskLock
 
 
@@ -152,6 +153,9 @@ class AgentLifecycle(Protocol):
     force: bool | None
     """Kick any connection already registered for this agent and take over. ``None``
     defers to the transport's own build-time policy. Settable per run."""
+    connection_listener: "ConnectionListener | None"
+    """Told when the backend acknowledges the agent and when the link drops.
+    Settable per run."""
 
     async def aprovide(self, context: Any) -> None:  # noqa: ANN401
         """Connect, then process messages until cancelled."""

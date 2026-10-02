@@ -56,6 +56,7 @@ from arkitekt_runtime.agents.journal import (
 )
 from arkitekt_runtime.task_scope import current_task_id, task_id_scope
 from arkitekt_spec.declare.agents.types import AppContext, T
+from arkitekt_runtime.agents.connection import ConnectionListener, ConnectionState
 from arkitekt_runtime.agents.policy import ConnectionPolicy
 from arkitekt_spec.declare.agents.hooks.registry import (
     ShutdownHook,
@@ -214,6 +215,12 @@ class BaseAgent(KoiledModel):
         default=None,
         exclude=True,
         description="The running app this agent belongs to: it answers get(cls) with the app's clients (arkitekt's Runtime), which are injected into parameters annotated with a client class. None for an agent that runs on its own.",
+    )
+
+    connection_listener: ConnectionListener | None = Field(
+        default=None,
+        exclude=True,
+        description="Told when the backend acknowledges the agent and when the link drops (see arkitekt_runtime.agents.connection). Settable per run, like force; None reports to nobody.",
     )
 
     contexts: dict[str, Any] = Field(
@@ -854,6 +861,7 @@ class BaseAgent(KoiledModel):
                 )
             self._connected_event.set()
             await self._aafter_init(message)
+            await self._anotify_connection(ConnectionState.REGISTERED)
         elif not self._connected_event.is_set():
             # Before Init, a protocol error is the backend refusing our Register: the
             # declaration did not fit (catalog mismatch, ownership conflict), or the
@@ -1186,6 +1194,17 @@ class BaseAgent(KoiledModel):
         else:
             self._connected_event.clear()
             self._start_disconnect_watchdog()
+            await self._anotify_connection(ConnectionState.DISCONNECTED)
+
+    async def _anotify_connection(self, state: ConnectionState) -> None:
+        """Tell the listener, if there is one. Link-up alone is never reported: only
+        an ``Init`` makes the agent registered."""
+        if self.connection_listener is None:
+            return
+        try:
+            await self.connection_listener(state)
+        except Exception:
+            logger.warning("The connection listener failed on %s", state.value, exc_info=True)
 
     def _start_disconnect_watchdog(self) -> None:
         """Begin counting down the grace periods of disconnect-sensitive actors."""
@@ -1874,7 +1893,8 @@ class BaseAgent(KoiledModel):
             else:
                 await sequence
         except BaseException:
-            logger.error("Agent failed to connect", exc_info=True)
+            # Re-raised below: whoever connects reports it, once.
+            logger.debug("Agent failed to connect", exc_info=True)
             await self.atear_down()
             raise
 

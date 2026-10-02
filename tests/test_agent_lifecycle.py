@@ -10,6 +10,7 @@ import pytest
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.agents.connection import ConnectionListener, ConnectionState
 from arkitekt_runtime.agents.transport.types import HandshakeParams
 from arkitekt_spec.declare.agents.errors import AgentException
 from arkitekt_spec.declare.app import AppRegistry
@@ -131,3 +132,62 @@ async def test_a_failing_stream_stops_the_agent_running() -> None:
         await asyncio.wait_for(looping, timeout=2.0)
 
     assert not agent.running
+
+
+# -- the connection listener -------------------------------------------------------
+
+
+async def _listening(
+    transport: RecordingTransport, listener: ConnectionListener
+) -> BaseAgent:
+    """An agent through ``aconnect`` whose connection ``listener`` hears about."""
+    agent = BaseAgent(
+        transport=transport,
+        app_registry=AppRegistry(),
+        name="lifecycle-test",
+        connection_listener=listener,
+    )
+    connecting = asyncio.create_task(agent.aconnect(timeout=2.0))
+    await _until(lambda: transport.handshakes)
+    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    await connecting
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_the_listener_hears_the_registration_and_every_drop_and_return() -> None:
+    heard: list[ConnectionState] = []
+
+    async def listener(state: ConnectionState) -> None:
+        heard.append(state)
+
+    transport = RecordingTransport()
+    agent = await _listening(transport, listener)
+    assert heard == [ConnectionState.REGISTERED]
+
+    await transport.drop_link()
+    assert heard[-1] is ConnectionState.DISCONNECTED
+
+    # The socket coming back is not yet a registration: only the backend's Init is.
+    await transport.restore_link()
+    assert heard == [ConnectionState.REGISTERED, ConnectionState.DISCONNECTED]
+
+    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    await _until(lambda: len(heard) == 3)
+    assert heard[-1] is ConnectionState.REGISTERED
+    await agent.atear_down()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_listener_never_reaches_the_agent() -> None:
+    async def listener(state: ConnectionState) -> None:
+        raise RuntimeError("the reporter broke")
+
+    transport = RecordingTransport()
+    agent = await _listening(transport, listener)
+
+    await transport.drop_link()
+    agent.shelve["drawer-1"] = object()
+    transport.feed(messages.Collect(drawers=["drawer-1"]))
+    await _until(lambda: "drawer-1" not in agent.shelve)
+    await agent.atear_down()
