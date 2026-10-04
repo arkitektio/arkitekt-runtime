@@ -165,6 +165,26 @@ async def test_shrink_basic(
 
 @pytest.mark.shrink
 @pytest.mark.asyncio
+async def test_shrink_refuses_another_structure_than_the_one_declared(
+    simple_registry: StructureRegistry, mock_shelver: Shelver
+) -> None:
+    """A structure travels as its id, so a wrong one would arrive as the right one's id."""
+    functional_definition = prepare_definition(
+        plain_structure_function, structure_registry=simple_registry
+    )
+
+    with pytest.raises(ShrinkingError, match="@mock/serializable"):
+        # The function is declared to return a SecondSerializableObject.
+        await shrink_outputs(
+            functional_definition,
+            (SerializableObject(number=3),),
+            structure_registry=simple_registry,
+            shelver=mock_shelver,
+        )
+
+
+@pytest.mark.shrink
+@pytest.mark.asyncio
 async def test_shrink_nested_structure_error(
     simple_registry: StructureRegistry, mock_shelver: Shelver
 ) -> None:

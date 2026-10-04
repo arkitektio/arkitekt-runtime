@@ -660,6 +660,15 @@ async def _shrink_structure(
             "Port is structure but does not have identifier. Please report this to the developers.",
         )
     fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
+    other = ctx.registry.declared_as_another(value, port.identifier)
+    if other is not None:
+        raise _shrink_error(
+            port,
+            value,
+            ctx,
+            f"A {type(value).__name__} ({other.identifier}) was returned where "
+            f"{port.identifier} is declared; its id would be sent as the wrong structure.",
+        )
     try:
         shrunk = await fstruc.shrink(value)
     except Exception as e:

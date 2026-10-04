@@ -166,6 +166,12 @@ async def _structure(
         # A bare string is taken as a reference to a global structure.
         return value
     fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
+    other = ctx.registry.declared_as_another(value, port.identifier)
+    if other is not None:
+        raise StructureShrinkingError(
+            f"A {type(value).__name__} ({other.identifier}) was given where "
+            f"{port.identifier} is declared; its id would be sent as the wrong structure."
+        )
     try:
         shrunk = await fstruc.shrink(value)
     except Exception:
