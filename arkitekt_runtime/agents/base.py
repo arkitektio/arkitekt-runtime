@@ -1228,6 +1228,7 @@ class BaseAgent(KoiledModel):
 
     def _task_event_of(self, message: messages.FromAgentMessage) -> TaskEvent | None:
         """What a task's report means to a task listener; ``None`` for anything else."""
+        details: dict[str, Any]
         if isinstance(message, messages.Progress):
             kind, details = TaskEventKind.PROGRESS, {
                 "progress": message.progress,
