@@ -29,7 +29,7 @@ import secrets
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from koil import unkoil, unkoil_gen
+from koil import check_cancelled, unkoil, unkoil_gen
 
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.agents.errors import NoCallerError
@@ -140,6 +140,10 @@ class Task:
     def pausepoint(self) -> None:
         """Pause here if the task was asked to."""
         unkoil(self.apausepoint)
+
+    def check_cancelled(self) -> None:
+        """Stop here if the task was cancelled: the cancellation point of a sync action."""
+        check_cancelled()
 
     # -- effects ---------------------------------------------------------- #
     # Values the task takes from outside itself, each recorded as an ``EFFECT`` under a
