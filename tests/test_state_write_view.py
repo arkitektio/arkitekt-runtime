@@ -103,3 +103,38 @@ def test_a_view_leaves_nothing_behind() -> None:
     del view
     gc.collect()
     assert state.__dict__["__rekuest_mutations__"] == {}
+
+
+def test_the_instance_a_startup_hook_returned_is_the_published_state() -> None:
+    """A host keeps what its startup hook returned and writes it from its own threads.
+
+    What a device reports by itself -- a joystick, a drifting stage -- has no task and
+    no action, so the instance itself has to be writable from wherever it is noticed.
+    """
+    returned = Board()
+    state = make_evented(returned, config_of(), "")
+    recorder = Recorder()
+    adopt(state, recorder)
+    assert state is returned, "adopted in place: the host's reference stays the live one"
+
+    def from_the_hosts_thread() -> None:
+        returned.count = 5
+        returned.meta["pump"] = 2.5
+        returned.count = 5  # unchanged: publishes nothing
+
+    thread = threading.Thread(target=from_the_hosts_thread)
+    thread.start()
+    thread.join()
+
+    assert [(op, path) for op, path, _ in recorder.patches] == [
+        ("replace", "/count"),
+        ("add", "/meta/pump"),
+    ]
+
+
+def config_of() -> StateConfig:
+    return StateConfig(
+        state_name="Board",
+        definition=StateDefinitionInput(ports=(), name="Board"),
+        required_locks=[],
+    )

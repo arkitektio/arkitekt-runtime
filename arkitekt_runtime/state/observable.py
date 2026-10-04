@@ -70,9 +70,6 @@ class StateConfig:
 
     state_name: str
     definition: StateDefinitionInput
-    publish_interval: float = (
-        0.1  # Optional: Minimum interval between patches to prevent flooding
-    )
     required_locks: list[str] = dataclasses.field(default_factory=list)
     publisher: StateHolder | None = dataclasses.field(default=None, compare=False)
     """Where patches go: the agent that adopted the state. None until then."""
@@ -91,7 +88,6 @@ class StateConfig:
         return cls(
             state_name=declaration.interface,
             definition=declaration.definition,
-            publish_interval=declaration.publish_interval,
             required_locks=list(declaration.required_locks),
         )
 
