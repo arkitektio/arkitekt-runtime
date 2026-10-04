@@ -218,3 +218,28 @@ def test_bridge_helpers() -> None:
 def test_expand_quantity_unknown_unit_errors() -> None:
     with pytest.raises(ValueError, match="no kanne dimension type"):
         expand_quantity("5", "not-a-real-unit")
+
+
+def test_a_quantity_is_expanded_by_a_process_that_never_imported_kanne() -> None:
+    """A caller reading a quantity an action returned names no kanne type itself.
+
+    arkitekt-spec does not import kanne on its own (it brings pint, and an app with
+    no quantity would pay for it on every start), so the value arriving is what
+    loads it.
+    """
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "import arkitekt_spec.declare.definition.define\n"
+        "from arkitekt_spec.declare.structures.quantities import expand_quantity, matches_dimension\n"
+        "assert 'kanne' not in sys.modules, 'declaring must not load kanne'\n"
+        "assert 'pint' not in sys.modules\n"
+        "value = expand_quantity('5 s', 'second')\n"
+        "assert type(value).__name__ == 'Duration', type(value)\n"
+        "assert matches_dimension('5 mV', str(value.quantity.dimensionality)) is False\n"
+        "assert matches_dimension('3 min', str(value.quantity.dimensionality)) is True\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
