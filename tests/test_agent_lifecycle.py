@@ -10,7 +10,7 @@ import pytest
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_runtime.agents.connection import ConnectionListener, ConnectionState
+from arkitekt_spec.declare.agents.connection import ConnectionListener, ConnectionState
 from arkitekt_runtime.agents.transport.types import HandshakeParams
 from arkitekt_spec.declare.agents.errors import AgentException
 from arkitekt_spec.declare.app import AppRegistry

@@ -56,7 +56,13 @@ from arkitekt_runtime.agents.journal import (
 )
 from arkitekt_runtime.task_scope import current_task_id, task_id_scope
 from arkitekt_spec.declare.agents.types import AppContext, T
-from arkitekt_runtime.agents.connection import ConnectionListener, ConnectionState
+from arkitekt_spec.declare.agents.connection import (
+    ConnectionListener,
+    ConnectionState,
+    TaskEvent,
+    TaskEventKind,
+    TaskListener,
+)
 from arkitekt_runtime.agents.policy import ConnectionPolicy
 from arkitekt_spec.declare.agents.hooks.registry import (
     ShutdownHook,
@@ -220,7 +226,13 @@ class BaseAgent(KoiledModel):
     connection_listener: ConnectionListener | None = Field(
         default=None,
         exclude=True,
-        description="Told when the backend acknowledges the agent and when the link drops (see arkitekt_runtime.agents.connection). Settable per run, like force; None reports to nobody.",
+        description="Told when the backend acknowledges the agent and when the link drops (see arkitekt_spec.declare.agents.connection). Settable per run, like force; None reports to nobody.",
+    )
+
+    task_listener: TaskListener | None = Field(
+        default=None,
+        exclude=True,
+        description="Told what happens to each task this agent runs: assigned (with its arguments), progress, yielded, done, failed, cancelled. Settable per run; None reports to nobody.",
     )
 
     contexts: dict[str, Any] = Field(
@@ -968,6 +980,14 @@ class BaseAgent(KoiledModel):
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()
+        await self._anotify_task(
+            TaskEvent(
+                task_id=message.task,
+                action=message.interface,
+                kind=TaskEventKind.ASSIGNED,
+                arguments=dict(message.args),
+            )
+        )
         # ...and it is this process's: numbered by step (unless it is a probe).
         self._journal.begin_task(message.task)
         if message.resume is not None:
@@ -1206,6 +1226,41 @@ class BaseAgent(KoiledModel):
         except Exception:
             logger.warning("The connection listener failed on %s", state.value, exc_info=True)
 
+    def _task_event_of(self, message: messages.FromAgentMessage) -> TaskEvent | None:
+        """What a task's report means to a task listener; ``None`` for anything else."""
+        if isinstance(message, messages.Progress):
+            kind, details = TaskEventKind.PROGRESS, {
+                "progress": message.progress,
+                "message": message.message,
+            }
+        elif isinstance(message, messages.Yield):
+            kind, details = TaskEventKind.YIELDED, {}
+        elif isinstance(message, messages.Completed):
+            kind, details = TaskEventKind.DONE, {}
+        elif isinstance(message, (messages.Failed, messages.Critical)):
+            kind, details = TaskEventKind.FAILED, {"error": message.error}
+        elif isinstance(message, (messages.Cancelled, messages.Interrupted)):
+            kind, details = TaskEventKind.CANCELLED, {}
+        else:
+            return None
+        return TaskEvent(
+            task_id=message.task,
+            action=self._action_key_for(message) or message.task,
+            kind=kind,
+            **details,
+        )
+
+    async def _anotify_task(self, event: TaskEvent) -> None:
+        """Tell the task listener, if there is one."""
+        if self.task_listener is None:
+            return
+        try:
+            await self.task_listener(event)
+        except Exception:
+            logger.warning(
+                "The task listener failed on %s of %s", event.kind.value, event.task_id, exc_info=True
+            )
+
     def _start_disconnect_watchdog(self) -> None:
         """Begin counting down the grace periods of disconnect-sensitive actors."""
         if (
@@ -1400,6 +1455,10 @@ class BaseAgent(KoiledModel):
             )
         self._retain_emitted(message, entry)
         await self._adeliver(message, entry)
+        if self.task_listener is not None:
+            event = self._task_event_of(message)
+            if event is not None:
+                await self._anotify_task(event)
         if isinstance(message, messages.TERMINAL_REPORTS):
             # The task is done, so it is no longer running on any actor, and no
             # longer an assignment this agent is managing. Nothing used to pop

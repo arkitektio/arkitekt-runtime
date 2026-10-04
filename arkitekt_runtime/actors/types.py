@@ -22,7 +22,7 @@ from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from arkitekt_spec.declare.app import AppRegistry
-    from arkitekt_runtime.agents.connection import ConnectionListener
+    from arkitekt_spec.declare.agents.connection import ConnectionListener
     from arkitekt_runtime.agents.lock import TaskLock
 
 
