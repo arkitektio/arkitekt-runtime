@@ -17,7 +17,7 @@ from arkitekt_spec.declare.agents.connection import TaskEvent, TaskEventKind
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 @pytest.fixture()

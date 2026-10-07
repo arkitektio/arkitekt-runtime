@@ -16,7 +16,7 @@ from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import StateRef, Task
 
 from .agent_helpers import run_assignment
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 def _agent(*workflows: Any, plain: tuple = ()) -> tuple[BaseAgent, MemoryAgentTransport]:  # noqa: ANN401

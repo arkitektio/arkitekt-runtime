@@ -7,7 +7,7 @@ from typing import Any
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 async def _run_loop(agent: BaseAgent) -> AsyncIterator[None]:

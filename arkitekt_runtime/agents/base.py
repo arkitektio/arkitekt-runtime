@@ -301,6 +301,9 @@ class BaseAgent(KoiledModel):
         default_factory=lambda: {}
     )
     _ran_startup_hooks: bool = PrivateAttr(default=False)
+    # A stopped run reaches teardown from several places (the loop, leaving the
+    # agent); it runs once per connect.
+    _torn_down: bool = PrivateAttr(default=False)
     _actor_builders: dict[str, Any] = PrivateAttr(default_factory=dict)
     """Built once per interface, from the registry's declarations (actors.build)."""
     """Set once the startup hooks have run, so teardown only runs the shutdown hooks
@@ -1082,7 +1085,12 @@ class BaseAgent(KoiledModel):
 
         The shelve is emptied however teardown ends: nothing can reference a
         shelved value once the agent has stopped.
+
+        Runs once per connect: a repeated call returns at once.
         """
+        if self._torn_down:
+            return
+        self._torn_down = True
         try:
             await self._atear_down()
         finally:
@@ -1945,6 +1953,7 @@ class BaseAgent(KoiledModel):
         raised and the agent is torn down.
         """
         self._app_context = context
+        self._torn_down = False
 
         try:
             sequence = self._aconnect_sequence(context=context)
@@ -2050,16 +2059,11 @@ class BaseAgent(KoiledModel):
 
         This starts the agent, connects to the transport, and then listens for
         messages from the transport. It is simply ``aconnect`` followed by
-        ``aloop``.
+        ``aloop``. Each of the two tears the agent down itself when it is stopped.
         """
-        try:
-            logger.info("Launching provisioning task.")
-            await self.aconnect(context=context)
-            await self.aloop()
-        except asyncio.CancelledError:
-            logger.info("Provisioning task cancelled. We are running")
-            await self.atear_down()
-            raise
+        logger.info("Launching provisioning task.")
+        await self.aconnect(context=context)
+        await self.aloop()
 
     async def __aenter__(self) -> Self:
         """Enter the agent context manager. This is used to enter the agent

@@ -19,7 +19,7 @@ from arkitekt_spec.declare.errors import AppContextError
 from arkitekt_runtime.task import Task
 
 from .agent_helpers import run_assignment
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 class Config:

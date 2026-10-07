@@ -4,7 +4,7 @@ The window these cover could not previously be observed at all. The websocket
 transport retries a dropped socket transparently, so ``areceive()`` never ends and
 the agent above it was never told control had been lost — an action that is only
 safe while it can be cancelled just kept running. These drive that window through
-:class:`tests.memory_transport.MemoryAgentTransport`, whose ``drop_link`` models
+:class:`arkitekt_runtime.local.MemoryAgentTransport`, whose ``drop_link`` models
 exactly it: the socket is gone, the stream is not.
 """
 
@@ -26,7 +26,7 @@ from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.agents.policy import Backoff, ConnectionPolicy
 from arkitekt_spec.declare.app import AppRegistry
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 @pytest.fixture()

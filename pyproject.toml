@@ -10,7 +10,7 @@ license = "MIT"
 # server) executes actions the same way, so this is what they share. It carries no
 # transport and no client: no websockets, no rath, no graphql-core.
 dependencies = [
-    "arkitekt-spec>=3.4",
+    "arkitekt-spec>=3.5",
     "pydantic>=2.11",
     "koil>=3.3.6",
     "janus>=2.0.0",

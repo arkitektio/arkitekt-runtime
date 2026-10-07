@@ -1,7 +1,7 @@
 """No-Docker checks for what the agent does with each inbound message.
 
 These run a real ``BaseAgent`` message loop against
-:class:`tests.memory_transport.MemoryAgentTransport`, which is the first fake able to
+:class:`arkitekt_runtime.local.MemoryAgentTransport`, which is the first fake able to
 drive it (the pre-existing ones had no ``areceive``). That is what makes the routing in
 ``BaseAgent.process`` testable rather than merely inspectable.
 """
@@ -19,7 +19,7 @@ from arkitekt_spec.declare.agents.hooks.registry import StartupHookReturns
 
 from arkitekt_spec.declare.agents.errors import AgentException
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 @pytest.fixture()

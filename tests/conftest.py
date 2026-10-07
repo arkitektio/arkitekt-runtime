@@ -2,7 +2,7 @@ import pytest
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 class MockShelver:

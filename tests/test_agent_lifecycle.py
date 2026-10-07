@@ -15,7 +15,7 @@ from arkitekt_runtime.agents.transport.types import HandshakeParams
 from arkitekt_spec.declare.agents.errors import AgentException
 from arkitekt_spec.declare.app import AppRegistry
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 class RecordingTransport(MemoryAgentTransport):
@@ -191,3 +191,54 @@ async def test_a_failing_listener_never_reaches_the_agent() -> None:
     transport.feed(messages.Collect(drawers=["drawer-1"]))
     await _until(lambda: "drawer-1" not in agent.shelve)
     await agent.atear_down()
+
+
+class CountingAgent(BaseAgent):
+    """Counts how often it is actually torn down."""
+
+    teardowns: int = 0
+
+    async def _atear_down(self) -> None:
+        self.teardowns += 1
+        await super()._atear_down()
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_run_is_torn_down_once() -> None:
+    """Stopping a run reaches teardown from the loop and from leaving the agent."""
+    transport = RecordingTransport()
+    agent = CountingAgent(transport=transport, app_registry=AppRegistry(), name="lifecycle-test")
+
+    async with agent:
+        providing = asyncio.create_task(agent.aprovide())
+        await _until(lambda: transport.handshakes)
+        transport.feed(
+            messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+        )
+        await _until(lambda: agent.running)
+        providing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(providing, timeout=2.0)
+        assert agent.teardowns == 1
+        assert not transport.connected
+
+    assert agent.teardowns == 1
+
+
+@pytest.mark.asyncio
+async def test_connecting_again_makes_the_agent_tear_down_again() -> None:
+    transport = RecordingTransport()
+    agent = CountingAgent(transport=transport, app_registry=AppRegistry(), name="lifecycle-test")
+    connecting = asyncio.create_task(agent.aconnect(timeout=2.0))
+    await _until(lambda: transport.handshakes)
+    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    await connecting
+
+    await agent.atear_down()
+    await agent.atear_down()
+    assert agent.teardowns == 1
+
+    # The memory stream ended for good, so this connect fails: and cleans up after itself.
+    with pytest.raises(AgentException):
+        await agent.aconnect(timeout=2.0)
+    assert agent.teardowns == 2

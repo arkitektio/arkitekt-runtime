@@ -15,7 +15,7 @@ from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_runtime.state.observable import adopt, evented
 from arkitekt_runtime.state.readonly import ReadOnlyStateError, read_only_view
 
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 
 # These states belong to a registry, as they would to an app. There is no

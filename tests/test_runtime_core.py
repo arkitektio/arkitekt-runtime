@@ -20,7 +20,7 @@ from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 
 from .agent_helpers import run_assignment
-from .memory_transport import MemoryAgentTransport
+from arkitekt_runtime.local import MemoryAgentTransport
 
 HEAVY = {"rekuest", "rath", "websockets", "graphql", "fastapi", "fakts"}
 

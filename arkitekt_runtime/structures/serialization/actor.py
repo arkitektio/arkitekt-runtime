@@ -33,7 +33,9 @@ from arkitekt_spec.declare.structures.errors import (
     StructureExpandingError,
 )
 from arkitekt_spec.declare.structures.quantities import expand_quantity, shrink_quantity
+from arkitekt_spec.declare.descriptors import unfulfilled
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_spec.declare.structures.types import FullFilledStructure
 from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
 from arkitekt_runtime.structures.serialization.context import (
     KindTable,
@@ -288,6 +290,24 @@ async def _expand_memory_structure(
     return await ctx.require_shelver().aget_from_shelve(drawer)
 
 
+def _descriptor_mismatch(
+    fstruc: FullFilledStructure, value: Any, constraints: Any
+) -> str | None:  # noqa: ANN401
+    """What ``value`` fails of a port's ``requires`` or ``provides``, if anything.
+
+    Only a structure that says how its objects are described can be tested, and
+    only on the keys it computes: a constraint on any other key is provenance,
+    taken on the producer's word. The ports of a state carry no constraints.
+    """
+    if not constraints or fstruc.describe is None:
+        return None
+    try:
+        failures = unfulfilled(constraints, fstruc.describe(value))
+    except Exception as e:
+        return f"its descriptors could not be computed ({type(e).__name__}: {e})"
+    return "; ".join(failures) or None
+
+
 async def _expand_structure(
     port: SerializablePort, value: Any, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
@@ -309,7 +329,7 @@ async def _expand_structure(
             f"No structure {port.identifier} in this app's registry. {e}",
         ) from e
     try:
-        return await ctx.load(fstruc, coerce_id(object))
+        expanded = await ctx.load(fstruc, coerce_id(object))
     except Exception as e:
         raise _expand_error(
             port,
@@ -317,6 +337,12 @@ async def _expand_structure(
             ctx,
             f"Error expanding {repr(value)} with Structure {port.identifier}",
         ) from e
+    mismatch = _descriptor_mismatch(fstruc, expanded, getattr(port, "requires", None))
+    if mismatch is not None:
+        raise _expand_error(
+            port, value, ctx, f"This {port.identifier} is not what the port requires: {mismatch}"
+        )
+    return expanded
 
 
 async def _expand_bool(
@@ -668,6 +694,13 @@ async def _shrink_structure(
             ctx,
             f"A {type(value).__name__} ({other.identifier}) was returned where "
             f"{port.identifier} is declared; its id would be sent as the wrong structure.",
+        )
+    # Before shrinking: once it is an id, nothing downstream can tell that the
+    # object is not what the port promised.
+    mismatch = _descriptor_mismatch(fstruc, value, getattr(port, "provides", None))
+    if mismatch is not None:
+        raise _shrink_error(
+            port, value, ctx, f"This {port.identifier} is not what the port provides: {mismatch}"
         )
     try:
         shrunk = await fstruc.shrink(value)
