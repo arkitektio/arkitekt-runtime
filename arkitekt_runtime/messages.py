@@ -673,6 +673,8 @@ class AgentDeclaration(BaseModel):
     states: list[dict[str, Any]] | None = None
     locks: list[dict[str, Any]] | None = None
     bloks: list[dict[str, Any]] | None = None
+    assets: list[dict[str, Any]] | None = None
+    """The files the agent brings, by name. It uploads what the backend does not hold."""
 
 
 class Register(AgentDeclaration, Message):
