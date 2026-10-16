@@ -203,6 +203,13 @@ class BaseAgent(KoiledModel):
             "which the backend falls back to the client id for."
         ),
     )
+    supervisor: str | None = Field(
+        default=None,
+        description=(
+            "The app that says it controls this agent's lifecycle, e.g. the engine that "
+            "started its container. A hint, never authority; not part of the hash."
+        ),
+    )
 
     shelve: dict[str, Any] = Field(default_factory=dict)
     """Values this agent shelved locally, by drawer. Owned by this agent only and
@@ -1908,6 +1915,7 @@ class BaseAgent(KoiledModel):
             force=self.force,
             session_id=self.current_session,
             declaration=declaration,
+            supervisor=self.supervisor,
         )
 
     async def _aconnect_sequence(self, context: AppContext | None = None) -> None:

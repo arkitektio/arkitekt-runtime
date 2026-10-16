@@ -48,6 +48,12 @@ class HandshakeParams(BaseModel):
     persisted. Its volatility is the reclaim signal: reconnecting with the SAME
     session_id means the process survived and in-flight work can be reclaimed; a
     DIFFERENT one means this is a fresh process."""
+    supervisor: str | None = Field(default=None)
+    """The app that says it controls this agent's lifecycle (e.g. ``plugin_engine``).
+
+    A hint the agent states about itself, never authority: pickers narrow on it, and a
+    supervisor still maps the agent to its own records before acting. Sent with every
+    ``Register`` and outside the definition hash."""
 
     model_config = ConfigDict(frozen=True)
 

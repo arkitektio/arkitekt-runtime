@@ -697,6 +697,10 @@ class Register(AgentDeclaration, Message):
         default=None,
         description="Per-process identifier minted in-memory by the executor at start-up (never persisted). Its volatility is the reclaim signal: a reconnect with the SAME session_id means the process survived (reclaim in-flight work); a DIFFERENT session_id means a fresh process (fail-and-cascade). Omitted by non-executors.",
     )
+    supervisor: str | None = Field(
+        default=None,
+        description="The app that says it controls this agent's lifecycle (e.g. 'plugin_engine'): a self-declared hint, stored on the agent on every Register. Not part of the definition hash.",
+    )
 
 
 class ProtocolError(Message):
