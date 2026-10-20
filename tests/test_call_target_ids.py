@@ -215,3 +215,40 @@ def test_an_assign_input_without_a_policy_dumps_as_it_did_before_policies() -> N
 
     assign_before_policies(**AssignInput(args={}, capture=False).model_dump())
     assert AssignInput(args={}, capture=False, policy=TaskPolicy.AUTO).model_dump()["policy"] == "AUTO"
+
+
+class _Implementation:
+    """An ``Implementation``: its own id, wrapping an action with no ports."""
+
+    def __init__(self, id: str, action_id: str) -> None:
+        self.id = id
+        self.action = SimpleNamespace(id=action_id, args=(), returns=())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_a_chosen_implementation_goes_alone_never_with_its_action(stream: bool) -> None:
+    """The server takes an action first and runs any free agent of it: naming both would
+    drop the implementation chosen (a caller's own agent, found with ``callerOf``)."""
+    postman = RecordingPostman()
+    task = _task(postman)
+    target = _Implementation("impl-1", action_id="action-1")
+
+    if stream:
+        async for _ in task.aiterate(target):
+            pass
+    else:
+        await task.acall(target)
+
+    (call,) = postman.calls
+    assert (call["action"], call["implementation"]) == (None, "impl-1")
+
+
+@pytest.mark.asyncio
+async def test_an_action_is_still_named_when_no_implementation_is() -> None:
+    postman = RecordingPostman()
+
+    await _task(postman).acall(SimpleNamespace(id="action-1", args=(), returns=()))
+
+    (call,) = postman.calls
+    assert (call["action"], call["implementation"]) == ("action-1", None)

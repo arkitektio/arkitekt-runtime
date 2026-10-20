@@ -64,6 +64,16 @@ def _resolve_target(
     )
 
 
+def _action_id(action: CallTarget, implementation_id: Any) -> Any:  # noqa: ANN401 -- an ID scalar
+    """The action to name on the wire: none when an implementation is named.
+
+    The server takes an action before an implementation and runs whichever agent of it is
+    free, so naming both would drop the implementation the caller chose (an agent's own
+    window, say, rather than any other agent of the same app).
+    """
+    return None if implementation_id is not None else action.id
+
+
 async def _aiterate_raw(
     *,
     postman: Postman,
@@ -176,7 +186,7 @@ async def _acall(
     raw_returns = await _acall_raw(
         postman=postman,
         kwargs=shrinked_args,
-        action_id=action.id,
+        action_id=_action_id(action, implementation_id),
         implementation_id=implementation_id,
         parent=parent,
         reference=reference,
@@ -221,7 +231,7 @@ async def _aiterate(
     async for raw_returns in _aiterate_raw(
         postman=postman,
         kwargs=shrinked_args,
-        action_id=action.id,
+        action_id=_action_id(action, implementation_id),
         implementation_id=implementation_id,
         parent=parent,
         reference=reference,
