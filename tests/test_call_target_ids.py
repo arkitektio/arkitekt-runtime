@@ -203,3 +203,15 @@ async def test_a_prompt_and_a_policy_reach_the_postman_when_given() -> None:
 
     assert (postman.calls[0]["prompt"], postman.calls[0]["policy"]) == (prompt, TaskPolicy.AUTO)
     assert "prompt" not in postman.calls[1] and "policy" not in postman.calls[1]
+
+
+def test_an_assign_input_without_a_policy_dumps_as_it_did_before_policies() -> None:
+    """A published rekuest spreads the dump into an assign that takes no ``policy``."""
+    from arkitekt_runtime.types import AssignInput, TaskPolicy
+
+    def assign_before_policies(*, args: dict, capture: bool, **rest: Any) -> dict:  # noqa: ANN401
+        assert "policy" not in rest
+        return rest
+
+    assign_before_policies(**AssignInput(args={}, capture=False).model_dump())
+    assert AssignInput(args={}, capture=False, policy=TaskPolicy.AUTO).model_dump()["policy"] == "AUTO"

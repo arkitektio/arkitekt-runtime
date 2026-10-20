@@ -7,9 +7,9 @@ agent and the HTTP server alike -- speaks them.
 """
 
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from arkitekt_spec.declare.task import HookInput
 from arkitekt_spec.scalars import ID, ActionHash, Args
@@ -94,6 +94,15 @@ class AssignInput(BaseModel):
     step: bool | None = Field(default=None, description='Whether the task should step. Ie. go to the next breakpoint')
     policy: TaskPolicy | None = Field(default=None, description='Whether the work the agents ask for under this task waits for a person: ASK (the default) holds every child an agent assigns until someone approves it; AUTO runs them at once. Only a root takes it; children inherit.')
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
+
+    @model_serializer(mode="wrap")
+    def _drop_unset_policy(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        # A rekuest from before policies spreads this dump into its assign, which takes no
+        # `policy`: unset, it is left out (the server's default, ASK, applies either way).
+        data = handler(self)
+        if isinstance(data, dict) and data.get("policy") is None:
+            data.pop("policy", None)
+        return data
 
 
 class CancelInput(BaseModel):
