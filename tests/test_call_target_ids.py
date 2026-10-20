@@ -159,3 +159,47 @@ async def test_the_raw_engine_itself_only_ever_sees_ids() -> None:
 
     (call,) = postman.calls
     assert (call["action"], call["implementation"]) == ("action-1", None)
+
+
+class PostmanBeforeHolds:
+    """A postman from before prompts and policies: it names every parameter it takes."""
+
+    connected = True
+
+    async def aassign(
+        self,
+        *,
+        args: dict[str, Any],
+        capture: bool = False,
+        reference: str | None = None,
+        hooks: Any = None,  # noqa: ANN401
+        action: str | None = None,
+        implementation: str | None = None,
+        parent: str | None = None,
+        dependency: str | None = None,
+        method: str | None = None,
+        escalate_to_interrupt: bool = False,
+        cancel_timeout: float | None = None,
+        call_key: str | None = None,
+    ) -> AsyncGenerator[Any, None]:
+        yield _Event(TaskEventKind.YIELD, returns=("ok",))
+        yield _Event(TaskEventKind.COMPLETED)
+
+
+@pytest.mark.asyncio
+async def test_a_call_without_prompt_or_policy_still_reaches_an_older_postman() -> None:
+    assert await _stream(PostmanBeforeHolds(), args={}, action_id="a1") == [("ok",)]
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_and_a_policy_reach_the_postman_when_given() -> None:
+    from arkitekt_runtime.types import TaskPolicy
+    from arkitekt_spec.declare.task import AssignPrompt
+
+    postman = RecordingPostman()
+    prompt = AssignPrompt(title="Run it")
+    await _stream(postman, args={}, action_id="a1", prompt=prompt, policy=TaskPolicy.AUTO)
+    await _stream(postman, args={}, action_id="a1")
+
+    assert (postman.calls[0]["prompt"], postman.calls[0]["policy"]) == (prompt, TaskPolicy.AUTO)
+    assert "prompt" not in postman.calls[1] and "policy" not in postman.calls[1]

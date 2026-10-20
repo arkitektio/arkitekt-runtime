@@ -86,6 +86,12 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         RootOnlyAssignError: If a ``parent``/``dependency``/``method`` call is routed
             to a postman that can only create root tasks.
     """
+    # Only when set: a postman from before holds and policies takes neither.
+    asked: dict[str, Any] = {}
+    if prompt is not None:
+        asked["prompt"] = prompt
+    if policy is not None:
+        asked["policy"] = policy
     async for i in postman.aassign(
         args=args or {},
         capture=capture,
@@ -99,8 +105,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
         call_key=call_key,
-        prompt=prompt,
-        policy=policy,
+        **asked,
     ):
         if i.kind == TaskEventKind.YIELD:
             yield i.returns
