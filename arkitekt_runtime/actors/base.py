@@ -7,10 +7,11 @@ import contextlib
 import logging
 from typing import (
     Any,
+    ClassVar,
     Literal,
     Self,
 )
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 import uuid
 from functools import partial
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
@@ -20,6 +21,8 @@ from arkitekt_runtime.actors.errors import UnknownMessageError
 from arkitekt_spec.declare.actors.policy import KEEP, DisconnectPolicy
 from arkitekt_spec.declare.agents.context import PreparedContextReturns, PreparedContextVariables
 from arkitekt_spec.declare.agents.errors import StateRequirementsNotMet
+from arkitekt_spec.declare.descriptors import unmet_state
+from arkitekt_spec.declare.errors import STATE_PRECONDITION
 from arkitekt_spec.declare.actors.types import (
     PreparedInjectedVariables,
     PreparedDependencyVariables,
@@ -39,6 +42,9 @@ from arkitekt_runtime.task import Task
 from arkitekt_runtime.agents.lock import LockGroup
 
 logger = logging.getLogger(__name__)
+
+STATE_REQUIRES_KEY = "@arkitekt/state_requires"
+"""The key a workflow records that its ``state_requires`` held under (a ``RECORD``)."""
 
 
 class Actor(BaseModel):
@@ -92,6 +98,11 @@ class Actor(BaseModel):
     )
     _serial_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
+    tests_state_requires: ClassVar[bool] = False
+    """Whether this actor class tests an assignment's ``state_requires`` itself. One that
+    does not is sent none of them: :meth:`_aon_assign_reporting` refuses such a task
+    before ``on_assign``, rather than let it run unchecked."""
+
     def has_running_tasks(self) -> bool:
         """Whether this actor currently has any assignment in flight."""
         return bool(self._running_asyncio_tasks)
@@ -105,8 +116,46 @@ class Actor(BaseModel):
         """
         self._running_assignment_hooks[task_id] = hook
 
+    def state_locks(self, assignment: messages.Assign) -> tuple[str, ...]:
+        """The locks of the states ``assignment``'s ``state_requires`` test: held with
+        the actor's own (:meth:`sync_context`), so the test and the run see one state."""
+        return tuple(
+            lock
+            for requirement in assignment.state_requires
+            for lock in self.agent.state_required_locks(requirement.state)
+        )
+
+    async def aunmet_state_requires(self, assignment: messages.Assign) -> tuple[str, ...]:
+        """Every ``state_requires`` of ``assignment`` the agent's state does not hold.
+
+        Called with the locks taken. Empty when there is nothing to test. A workflow
+        records that it passed (a ``RECORD`` effect under :data:`STATE_REQUIRES_KEY`), and
+        a resume of one that did is not tested again: what its state holds now is its own
+        doing. Its journal's steps say nothing here, as ``STARTED`` and the first progress
+        are steps taken before the locks.
+        """
+        if not assignment.state_requires:
+            return ()
+        resume = assignment.resume
+        if resume is not None and any(effect.key == STATE_REQUIRES_KEY for effect in resume.effects):
+            return ()
+        states = await self.agent.aread_states(
+            [requirement.state for requirement in assignment.state_requires]
+        )
+        unmet = unmet_state(assignment.state_requires, states)
+        if not unmet and self.execution in (Execution.WORKFLOW, Execution.WORKFLOW.value):
+            await self.asend(
+                message=messages.Effect(
+                    task=assignment.task,
+                    effect=messages.EffectKind.RECORD,
+                    value=True,
+                    key=STATE_REQUIRES_KEY,
+                )
+            )
+        return unmet
+
     @contextlib.asynccontextmanager
-    async def sync_context(self: Self, task_id: str, interface: str):
+    async def sync_context(self: Self, task_id: str, interface: str, extra_locks: Iterable[str] = ()):
         """Context manager that holds the actor's locks while an assignment runs.
 
         Acquisition order is fixed (see the deadlock invariants documented in
@@ -121,17 +170,21 @@ class Actor(BaseModel):
         Args:
             task_id: The ID of the task.
             interface: The interface name for this actor.
+            extra_locks: Keys held beside the actor's own for this assignment: the
+                locks of the states its ``state_requires`` test, so the state cannot
+                change between the test and the run. Taken in the same sorted group.
 
         Yields:
             None after all locks are acquired.
         """
+        keys = sorted({*(self.locks or ()), *extra_locks})
         async with contextlib.AsyncExitStack() as stack:
             if self.concurrency == "serial":
                 await stack.enter_async_context(self._serial_lock)
 
-            if self.locks:
+            if keys:
                 lock_group = LockGroup(
-                    locks=self.agent.get_locks_for_keys(self.locks),
+                    locks=self.agent.get_locks_for_keys(keys),
                     task_id=task_id,
                 )
                 await stack.enter_async_context(lock_group)
@@ -464,6 +517,15 @@ class Actor(BaseModel):
         """
         try:
             await self.asend(message=messages.Started(task=assignment.task))
+            if assignment.state_requires and not self.tests_state_requires:
+                await self.asend(
+                    message=messages.Failed(
+                        task=assignment.task,
+                        error=f"{type(self).__name__} does not test state requirements",
+                        code=STATE_PRECONDITION,
+                    )
+                )
+                return
             await self.on_assign(assignment)
         except asyncio.CancelledError:
             raise  # Cancel/Interrupt/teardown report their own terminal message

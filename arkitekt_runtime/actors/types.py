@@ -142,6 +142,15 @@ class ActorContext(Shelver, LockHost, Capturable, Protocol):
         """Publish a state patch. Satisfies ``state.publish.StateHolder``."""
         ...
 
+    async def aread_states(self, interfaces: Sequence[str]) -> dict[str, Any]:
+        """The named states as the server knows them (shrunk), with every change made
+        before the call applied; a state the agent does not have is left out."""
+        ...
+
+    def state_required_locks(self, interface: str) -> tuple[str, ...]:
+        """The locks an action must hold to change the state ``interface``."""
+        ...
+
 
 @runtime_checkable
 class AgentLifecycle(Protocol):

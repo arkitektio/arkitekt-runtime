@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model
 from enum import Enum
 from pydantic import Field
 import uuid
-from arkitekt_spec.declare.task import AssignPrompt
+from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
 
 
 JSONSerializable = (
@@ -216,6 +216,12 @@ class FromAgentEvent(JournaledMessage):
     )
 
 
+FEATURE_STATE_REQUIRES = "state_requires"
+"""What an agent says on ``Register`` (``features``) when it tests an Assign's
+``state_requires``. A server must not send requirements to an agent that does not: it
+would drop them and run the task unchecked."""
+
+
 class Assign(Message):
     """An assign call
 
@@ -276,6 +282,10 @@ class Assign(Message):
     resume: "Journal | None" = Field(
         default=None,
         description="Set when a workflow's agent died and the task is sent again to be resumed: what it recorded so far.",
+    )
+    state_requires: list[StateRequirement] = Field(
+        default_factory=list,
+        description="What this agent's state must hold for the task to run. Tested after the task's locks are taken; on a mismatch the task ends FAILED with code STATE_PRECONDITION and nothing of it runs.",
     )
 
 
@@ -520,6 +530,10 @@ class Failed(FromAgentEvent):
     type: Literal[FromAgentMessageType.FAILED] = FromAgentMessageType.FAILED
     task: str
     error: str
+    code: str | None = Field(
+        default=None,
+        description="Why, when it is one the protocol names: STATE_PRECONDITION when the task's state_requires did not hold.",
+    )
 
 
 class Critical(FromAgentEvent):
@@ -734,6 +748,10 @@ class Register(AgentDeclaration, Message):
         default=None,
         description="The app that says it controls this agent's lifecycle (e.g. 'plugin_engine'): a self-declared hint, stored on the agent on every Register. Not part of the definition hash.",
     )
+    features: list[str] = Field(
+        default_factory=list,
+        description="What this agent implements beyond the base protocol. 'state_requires': it tests an Assign's state_requires; a server sends none to an agent that does not say so.",
+    )
 
 
 class ProtocolError(Message):
@@ -901,6 +919,10 @@ class AssignRequest(Message):
     prompt: AssignPrompt | None = Field(
         default=None,
         description="Why the caller wants the child run. Unless the run is in auto-mode the server holds the child until a person approves it, and shows this next to what it knows.",
+    )
+    state_requires: list[StateRequirement] = Field(
+        default_factory=list,
+        description="What the child's agent's state must hold for it to run (see Assign.state_requires).",
     )
 
 
@@ -1273,6 +1295,8 @@ class FailedEvent(ExecutionEvent):
 
     type: Literal[ToAgentMessageType.FAILED_EVENT] = ToAgentMessageType.FAILED_EVENT
     error: str | None = None
+    code: str | None = None
+    """The FAILED report's code, passed on (STATE_PRECONDITION)."""
 
 
 class CriticalEvent(ExecutionEvent):

@@ -54,6 +54,10 @@ class HandshakeParams(BaseModel):
     A hint the agent states about itself, never authority: pickers narrow on it, and a
     supervisor still maps the agent to its own records before acting. Sent with every
     ``Register`` and outside the definition hash."""
+    features: list[str] = Field(default_factory=list)
+    """What the agent implements beyond the base protocol, sent on ``Register``
+    (:data:`~arkitekt_runtime.messages.FEATURE_STATE_REQUIRES`). A transport that drops it
+    is safe: the server then sends this agent no task it would have to test."""
 
     model_config = ConfigDict(frozen=True)
 

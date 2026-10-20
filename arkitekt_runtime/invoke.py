@@ -25,7 +25,7 @@ from arkitekt_runtime.calls import _astream_raw, _resolve_parent
 from arkitekt_runtime.messages import Assign
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_runtime.types import TaskPolicy
-from arkitekt_spec.declare.task import AssignPrompt, HookInput
+from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.postman import aexpand_returns, ashrink_args
 from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
@@ -89,6 +89,7 @@ async def _aiterate_raw(
     call_key: str | None = None,
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
+    state_requires: "list[StateRequirement] | None" = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the raw YIELD payloads of a remote call.
 
@@ -109,6 +110,7 @@ async def _aiterate_raw(
         call_key=call_key,
         prompt=prompt,
         policy=policy,
+        state_requires=state_requires,
     ):
         yield returns
 
@@ -128,6 +130,7 @@ async def _acall_raw(
     call_key: str | None = None,
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
+    state_requires: "list[StateRequirement] | None" = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload, whatever the action returned
     """Run a call with already-serialized arguments and return the final YIELD payload.
 
@@ -150,6 +153,7 @@ async def _acall_raw(
         call_key=call_key,
         prompt=prompt,
         policy=policy,
+        state_requires=state_requires,
     ):
         returns = r
     return returns
@@ -169,6 +173,7 @@ async def _acall(
     call_key: str | None = None,
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
+    state_requires: "list[StateRequirement] | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
     """Call an action and return its expanded result.
@@ -197,6 +202,7 @@ async def _acall(
         call_key=call_key,
         prompt=prompt,
         policy=policy,
+        state_requires=state_requires,
     )
     returns = await aexpand_returns(
         action, raw_returns, structure_registry=structure_registry
@@ -220,6 +226,7 @@ async def _aiterate(
     call_key: str | None = None,
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
+    state_requires: "list[StateRequirement] | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator action's yields, each one expanded."""
@@ -242,6 +249,7 @@ async def _aiterate(
         call_key=call_key,
         prompt=prompt,
         policy=policy,
+        state_requires=state_requires,
     ):
         returns = await aexpand_returns(
             action, raw_returns, structure_registry=structure_registry

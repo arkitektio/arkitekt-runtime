@@ -51,6 +51,16 @@ class QueuedStep:
 
 
 @dataclass
+class QueuedRead:
+    """A read of states as the server knows them, in order behind every patch queued
+    before it: the processor resolves ``waiter`` with each named state's shrunk value
+    with all of those applied (a state the agent does not have is left out)."""
+
+    interfaces: tuple[str, ...]
+    waiter: "asyncio.Future[dict[str, JSONSerializable]]"
+
+
+@dataclass
 class RevisedState:
     """Current agent-owned shrunk state together with its local revision."""
 
@@ -58,4 +68,4 @@ class RevisedState:
     data: JSONSerializable
 
 
-__all__ = ["QueuedAssign", "QueuedMessage", "QueuedPatchEvent", "QueuedStep", "RevisedState"]
+__all__ = ["QueuedAssign", "QueuedMessage", "QueuedPatchEvent", "QueuedRead", "QueuedStep", "RevisedState"]

@@ -9,6 +9,7 @@ from arkitekt_runtime.messages import Assign
 from arkitekt_runtime.structures.serialization.actor import expand_inputs, shrink_outputs
 from arkitekt_runtime.actors.helper import AssignmentHelper
 from arkitekt_runtime.task import Task
+from arkitekt_spec.declare.errors import STATE_PRECONDITION
 from arkitekt_spec.declare.structures.errors import SerializationError
 from arkitekt_runtime import messages
 from arkitekt_runtime.actors.debug import capture_to_list
@@ -36,6 +37,8 @@ class FunctionalActor(SerializingActor):
     assign: Callable[..., Any]
     iterator: "ResultIterator"
 
+    tests_state_requires = True
+
     def aiterate_results(
         self: Self, **params: dict[str, Any]
     ) -> AsyncGenerator[Any, None]:
@@ -62,7 +65,20 @@ class FunctionalActor(SerializingActor):
             )
         )
 
-        async with self.sync_context(assignment.task, assignment.interface):
+        async with self.sync_context(
+            assignment.task, assignment.interface, self.state_locks(assignment)
+        ):
+            unmet = await self.aunmet_state_requires(assignment)
+            if unmet:
+                await self.asend(
+                    message=messages.Failed(
+                        task=assignment.task,
+                        error="The agent's state does not match: " + "; ".join(unmet),
+                        code=STATE_PRECONDITION,
+                    )
+                )
+                return
+
             # Expansion goes through the clients this actor's structure registry
             # was bound to. The body gets one Task per assignment, and its
             # dependency proxies and client views are made for that same object.

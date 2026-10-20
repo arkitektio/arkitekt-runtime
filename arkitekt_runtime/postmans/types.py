@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator, Sequence
 from arkitekt_spec.scalars import ID
 
 from arkitekt_runtime.types import TaskEventKind, TaskPolicy
-from arkitekt_spec.declare.task import AssignPrompt, HookInput
+from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
 
 
 @runtime_checkable
@@ -77,6 +77,7 @@ class Postman(Protocol):
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         policy: "TaskPolicy | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
     ) -> AsyncGenerator[TaskEventLike, None]:
         """Originate a task and stream its events.
 
@@ -124,6 +125,11 @@ class Postman(Protocol):
             policy: Whether the work agents ask for under a root waits for a person
                 (ASK, the server's default) or runs at once (AUTO, auto-mode). Only a
                 root takes one; a child inherits its parent's, whatever it asks for.
+            state_requires: What the agent's state must hold for the task to run. The
+                agent tests it with the task's locks held; a mismatch ends the task
+                FAILED with code ``STATE_PRECONDITION`` before anything ran. Both
+                transports carry it; the server refuses it for an agent that does not
+                say it tests them.
 
         Raises:
             RootOnlyAssignError: By a root-only transport, if ``parent``,

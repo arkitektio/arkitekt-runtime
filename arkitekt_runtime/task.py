@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
-    from arkitekt_spec.declare.task import AssignPrompt, HookInput
+    from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
     from arkitekt_spec.declare.structures.registry import StructureRegistry
     from arkitekt_spec.declare.structures.types import JSONSerializable
 
@@ -337,6 +337,7 @@ class Task:
         cancel_timeout: float | None = None,
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
@@ -356,6 +357,11 @@ class Task:
         approves it; ``prompt`` is what they are shown about why, next to what the server
         knows (the action, the agent, the arguments). A refusal raises
         :class:`~arkitekt_spec.declare.errors.DeniedError`.
+
+        ``state_requires`` is what the child's agent's state must hold for it to run
+        (:class:`~arkitekt_spec.declare.task.StateRequirement`); when it does not,
+        nothing of the child runs and this raises
+        :class:`~arkitekt_spec.declare.errors.StatePreconditionFailed`.
         """
         from arkitekt_runtime.invoke import _acall
 
@@ -373,6 +379,7 @@ class Task:
             cancel_timeout=cancel_timeout,
             call_key=call_key,
             prompt=prompt,
+            state_requires=state_requires,
             **kwargs,
         )
 
@@ -397,6 +404,7 @@ class Task:
         cancel_timeout: float | None = None,
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "AsyncGenerator[Any, None]":
         """Stream a generator action's yields as a child of this task."""
@@ -416,6 +424,7 @@ class Task:
             cancel_timeout=cancel_timeout,
             call_key=call_key,
             prompt=prompt,
+            state_requires=state_requires,
             **kwargs,
         ):
             yield value
@@ -443,6 +452,7 @@ class Task:
         cancel_timeout: float | None = None,
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
     ) -> Any:  # noqa: ANN401 -- the raw backend payload
         """Call with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _acall_raw
@@ -461,6 +471,7 @@ class Task:
             cancel_timeout=cancel_timeout,
             call_key=call_key,
             prompt=prompt,
+            state_requires=state_requires,
         )
 
     async def aiterate_raw(
@@ -476,6 +487,7 @@ class Task:
         cancel_timeout: float | None = None,
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
     ) -> "AsyncGenerator[Any, None]":
         """Stream with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _aiterate_raw
@@ -494,6 +506,7 @@ class Task:
             cancel_timeout=cancel_timeout,
             call_key=call_key,
             prompt=prompt,
+            state_requires=state_requires,
         ):
             yield value
 

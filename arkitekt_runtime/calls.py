@@ -24,8 +24,15 @@ from arkitekt_runtime.types import (
     TaskEventKind,
     TaskPolicy,
 )
-from arkitekt_spec.declare.errors import AgentLost, CriticalCallError, DeniedError, ErrorCallError
-from arkitekt_spec.declare.task import AssignPrompt
+from arkitekt_spec.declare.errors import (
+    STATE_PRECONDITION,
+    AgentLost,
+    CriticalCallError,
+    DeniedError,
+    ErrorCallError,
+    StatePreconditionFailed,
+)
+from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
 from arkitekt_runtime.messages import Assign, JSONSerializable
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_spec.declare.structures.registry import StructureRegistry
@@ -71,6 +78,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     call_key: str | None = None,
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
+    state_requires: "list[StateRequirement] | None" = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the YIELD payloads of a task, returning on DONE.
 
@@ -83,6 +91,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         CriticalCallError: If the backend reports a critical task error.
         AgentLost: If the agent running the task died while it ran.
         DeniedError: If a person refused to let the task run (it was held for approval).
+        StatePreconditionFailed: If the agent's state did not match ``state_requires``;
+            nothing of the task ran.
         RootOnlyAssignError: If a ``parent``/``dependency``/``method`` call is routed
             to a postman that can only create root tasks.
     """
@@ -92,6 +102,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         asked["prompt"] = prompt
     if policy is not None:
         asked["policy"] = policy
+    if state_requires:
+        asked["state_requires"] = state_requires
     async for i in postman.aassign(
         args=args or {},
         capture=capture,
@@ -114,6 +126,12 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
             return
 
         if i.kind == TaskEventKind.FAILED:
+            # Refused before it ran: the agent's state did not match `state_requires`.
+            value = getattr(i, "value", None)
+            if isinstance(value, dict) and value.get("code") == STATE_PRECONDITION:
+                raise StatePreconditionFailed(
+                    i.message or "The agent's state does not match.", task=getattr(i, "task", None)
+                )
             raise ErrorCallError(i.message)
 
         if i.kind == TaskEventKind.CRITICAL:

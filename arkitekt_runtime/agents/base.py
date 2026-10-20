@@ -44,6 +44,7 @@ from arkitekt_runtime.agents.dataclasses import (
     QueuedAssign,
     QueuedMessage,
     QueuedPatchEvent,
+    QueuedRead,
     QueuedStep,
     RevisedState,
 )
@@ -94,7 +95,7 @@ logger = logging.getLogger(__name__)
 _FINISHED_TASKS_REMEMBERED = 2048
 
 #: What the agent's ordered queue carries.
-QueuedItem = QueuedPatchEvent | QueuedMessage | QueuedAssign | QueuedStep
+QueuedItem = QueuedPatchEvent | QueuedMessage | QueuedAssign | QueuedStep | QueuedRead
 
 # ``AppContext``/``RevisedState``/``QueuedPatchEvent`` used to be defined here;
 # they stay importable from this module.
@@ -112,7 +113,7 @@ if TYPE_CHECKING:
     from arkitekt_runtime.postmans.types import Postman, TaskEventLike
     from types import TracebackType
 
-    from arkitekt_spec.declare.task import AssignPrompt, HookInput
+    from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
     from arkitekt_runtime.types import TaskPolicy
 
 
@@ -153,6 +154,7 @@ class NoCallerPostman:
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         policy: "TaskPolicy | None" = None,
+        state_requires: "list[StateRequirement] | None" = None,
     ) -> "AsyncGenerator[TaskEventLike, None]":
         """Refuse the call.
 
@@ -507,6 +509,9 @@ class BaseAgent(KoiledModel):
                 return
             if item.waiter is not None and not item.waiter.done():
                 item.waiter.set_result(None)
+        elif isinstance(item, QueuedRead):
+            if not item.waiter.done():
+                item.waiter.set_result(self._read_shrunk_states(item.interfaces))
         elif isinstance(item, QueuedAssign):
             try:
                 self._journal.record_assign(item.assign, item.action_key)
@@ -545,6 +550,37 @@ class BaseAgent(KoiledModel):
         waiter: asyncio.Future[int | None] = asyncio.get_running_loop().create_future()
         queue.async_q.put_nowait(QueuedStep(task=task, waiter=waiter))
         return await waiter
+
+    def _read_shrunk_states(self, interfaces: tuple[str, ...]) -> dict[str, JSONSerializable]:
+        return {
+            interface: copy.deepcopy(self._current_shrunk_states[interface])
+            for interface in interfaces
+            if interface in self._current_shrunk_states
+        }
+
+    async def aread_states(self, interfaces: Sequence[str]) -> dict[str, JSONSerializable]:
+        """The named states as the server knows them: shrunk, as their patches carry
+        them, with every change made before this call applied. A state this agent does
+        not have is left out.
+
+        Through the ordered queue, so a change a task made just before is not missed;
+        no value is shrunk again (and nothing shelved) to answer.
+        """
+        names = tuple(interfaces)
+        queue = self._event_queue
+        if queue is None or self._on_processor():
+            return self._read_shrunk_states(names)
+        waiter: asyncio.Future[dict[str, JSONSerializable]] = asyncio.get_running_loop().create_future()
+        queue.async_q.put_nowait(QueuedRead(interfaces=names, waiter=waiter))
+        return await waiter
+
+    def state_required_locks(self, interface: str) -> tuple[str, ...]:
+        """The locks an action must hold to change the state ``interface`` (none for a
+        state this agent does not have)."""
+        cls = self.app_registry.state_interface_classes.get(interface)
+        if cls is None:
+            return ()
+        return tuple(self.app_registry.structure_registry.state_for(cls).required_locks)
 
     async def areserve_call_step(self, task: str) -> int | None:
         """The step of ``task`` a child call it makes now takes (its ``ASSIGN_REQUEST``
@@ -1920,6 +1956,7 @@ class BaseAgent(KoiledModel):
             session_id=self.current_session,
             declaration=declaration,
             supervisor=self.supervisor,
+            features=[messages.FEATURE_STATE_REQUIRES],
         )
 
     async def _aconnect_sequence(self, context: AppContext | None = None) -> None:

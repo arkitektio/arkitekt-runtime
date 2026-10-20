@@ -11,6 +11,7 @@ from typing import Annotated, Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
+from arkitekt_spec.actions import DescriptorOperator
 from arkitekt_spec.declare.task import HookInput
 from arkitekt_spec.scalars import ID, ActionHash, Args
 
@@ -78,6 +79,15 @@ class ResolvedDependencyInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
 
+class StateRequirementInput(BaseModel):
+    """What the agent's state must hold for the task to run: the value at `path` (an RFC 6901 pointer into the state `state`) compared with `value` by `operator`. The agent tests it after taking the task's locks; on a mismatch the task ends FAILED with code STATE_PRECONDITION and nothing of it runs."""
+    state: str = Field(description='The state interface on the agent.')
+    path: str = Field(description="An RFC 6901 pointer into the state's value, e.g. '/busy'.")
+    operator: DescriptorOperator = Field(description='How the value at `path` is compared with `value`.')
+    value: Any | None = Field(default=None, description='What the value is compared with.')
+    model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
+
+
 class AssignInput(BaseModel):
     """The input for assigning args to a action. A GraphQL assign is a ROOT by definition — children are created only over the agent socket (AssignRequest, where parent is mandatory) and by server-internal paths like init hooks, so parent/dependency/method are deliberately absent here."""
     action: ID | None = Field(default=None, description='The action ID to assign to')
@@ -93,15 +103,19 @@ class AssignInput(BaseModel):
     dependencies: tuple['ResolvedDependencyInput', ...] | None = Field(default=None, description='The dependencies of the task. This maps dependency keys to implementation IDs.')
     step: bool | None = Field(default=None, description='Whether the task should step. Ie. go to the next breakpoint')
     policy: TaskPolicy | None = Field(default=None, description='Whether the work the agents ask for under this task waits for a person: ASK (the default) holds every child an agent assigns until someone approves it; AUTO runs them at once. Only a root takes it; children inherit.')
+    state_requires: tuple[StateRequirementInput, ...] | None = Field(validation_alias=AliasChoices('state_requires', 'stateRequires'), serialization_alias='stateRequires', default=None, description="What the agent's state must hold for the task to run. Refused unless the agent says it tests them.")
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
     @model_serializer(mode="wrap")
     def _drop_unset_policy(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
         # A rekuest from before policies spreads this dump into its assign, which takes no
         # `policy`: unset, it is left out (the server's default, ASK, applies either way).
+        # Likewise `state_requires`, which a server from before them does not know.
         data = handler(self)
-        if isinstance(data, dict) and data.get("policy") is None:
-            data.pop("policy", None)
+        if isinstance(data, dict):
+            for key in ("policy", "state_requires", "stateRequires"):
+                if key in data and not data[key]:
+                    data.pop(key)
         return data
 
 

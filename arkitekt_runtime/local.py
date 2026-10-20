@@ -21,6 +21,8 @@ from collections.abc import AsyncIterator
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.actions import PortKind
+from arkitekt_spec.declare.errors import STATE_PRECONDITION, StatePreconditionFailed
+from arkitekt_spec.declare.task import StateRequirement
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
@@ -240,7 +242,11 @@ def _each_memory_value(port: SerializablePort, value: Any, swap: Any) -> Any:  #
 
 
 async def aiterate_local_raw(
-    agent: BaseAgent, interface: str, args: dict[str, Any]
+    agent: BaseAgent,
+    interface: str,
+    args: dict[str, Any],
+    *,
+    state_requires: "list[StateRequirement] | None" = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Assign ``interface`` once, with arguments as they travel, and yield what it yields.
 
@@ -248,10 +254,12 @@ async def aiterate_local_raw(
         agent: A connected agent on a :class:`MemoryAgentTransport`.
         interface: The action to call.
         args: Its arguments, already shrunk.
+        state_requires: What the agent's state must hold for the action to run.
 
     Raises:
         LocalCallError: If the action fails or raises.
         LocalCallCancelledError: If it is cancelled first.
+        StatePreconditionFailed: If the agent's state did not match ``state_requires``.
     """
     transport = _local_transport(agent)
     task = uuid.uuid4().hex
@@ -267,6 +275,7 @@ async def aiterate_local_raw(
                 reference=task,
                 user=LOCAL_USER,
                 org=LOCAL_ORG,
+                state_requires=list(state_requires or ()),
             )
         )
         while True:
@@ -280,6 +289,8 @@ async def aiterate_local_raw(
             elif isinstance(message, messages.Critical):
                 raise LocalCallError(interface, message.error, critical=True)
             elif isinstance(message, messages.Failed):
+                if message.code == STATE_PRECONDITION:
+                    raise StatePreconditionFailed(message.error, task=task)
                 raise LocalCallError(interface, message.error, critical=False)
             elif isinstance(message, (messages.Cancelled, messages.Interrupted)):
                 raise LocalCallCancelledError(interface, "it was cancelled")
@@ -295,6 +306,7 @@ async def aiterate_local(
     agent: BaseAgent,
     interface: str,
     *args: Any,  # noqa: ANN401 -- the action's own arguments
+    state_requires: "list[StateRequirement] | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncIterator[Any]:
     """Call ``interface`` in-process with Python values and yield each of its results.
@@ -305,9 +317,13 @@ async def aiterate_local(
     is put on the agent's shelve going in and read off it coming out, so it is
     passed and returned as the object itself.
 
+    ``state_requires`` is what the agent's state must hold for the action to run (it
+    shadows an action argument of the same name).
+
     Raises:
         KeyError: If the app has no such action.
         LocalCallError: If the action fails or raises.
+        StatePreconditionFailed: If the agent's state did not match ``state_requires``.
     """
     _local_transport(agent)
     definition = _definition_of(agent, interface)
@@ -337,7 +353,7 @@ async def aiterate_local(
         )
 
     shrunk = await ashrink_args(definition, args, kwargs, structure_registry=registry)
-    async for raw in aiterate_local_raw(agent, interface, shrunk):
+    async for raw in aiterate_local_raw(agent, interface, shrunk, state_requires=state_requires):
         returns = await aexpand_returns(definition, raw, structure_registry=registry)
         returns = tuple(
             _each_memory_value(port, value, unshelve)
@@ -355,6 +371,7 @@ async def acall_local(
     agent: BaseAgent,
     interface: str,
     *args: Any,  # noqa: ANN401 -- the action's own arguments
+    state_requires: "list[StateRequirement] | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the action returns
     """Call ``interface`` in-process and return its result (the last, of a generator).
@@ -366,7 +383,7 @@ async def acall_local(
         LocalCallError: If the action fails or raises.
     """
     result: Any = None
-    async for result in aiterate_local(agent, interface, *args, **kwargs):  # noqa: B007
+    async for result in aiterate_local(agent, interface, *args, state_requires=state_requires, **kwargs):  # noqa: B007
         pass
     return result
 
