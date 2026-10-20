@@ -10,7 +10,7 @@ from arkitekt_runtime import messages
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.errors import NonDeterministicWorkflow
 from arkitekt_runtime.actors.types import Actor
-from arkitekt_spec.declare.task import AssignmentHook
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision
 
 
 @runtime_checkable
@@ -99,13 +99,13 @@ class AssignmentHelper(BaseModel):
         )
 
     async def aeffect(
-        self, effect: messages.EffectKind, value: float | str, key: str | None = None
+        self, effect: messages.EffectKind, value: Any, key: str | None = None  # noqa: ANN401 -- any JSON
     ) -> None:
         """Record a value the task took from outside itself (an ``EFFECT``).
 
         Args:
             effect (EffectKind): What was taken (the clock, randomness, a deadline).
-            value (float | str): The value taken.
+            value (Any): The value taken, as JSON.
             key (str | None): What the task calls it; by default the kind and its
                 occurrence in this task (``NOW:1``, ``NOW:2``), which a replay matches on.
         """
@@ -155,9 +155,11 @@ class AssignmentHelper(BaseModel):
             )
         return True, entry.value, key
 
-    async def ahold(self, message: str, details: dict[str, Any] | None = None) -> None:
-        """Pause the task by itself until a person resumes it."""
-        await self.actor.ahold(self.assignment.task, message, details)
+    async def ahold(
+        self, message: str, details: dict[str, Any] | None = None, prompt: "AssignPrompt | None" = None
+    ) -> "Decision":
+        """Hold the task until a person decides (or auto-mode does), and return the decision."""
+        return await self.actor.ahold(self.assignment.task, message, details, prompt)
 
     @property
     def execution(self) -> Execution:

@@ -13,7 +13,7 @@ from typing import Any
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.task import StateRef, Task
+from arkitekt_spec.declare.task import AssignPrompt, StateRef, Task
 
 from .agent_helpers import run_assignment
 from arkitekt_runtime.local import MemoryAgentTransport
@@ -155,43 +155,80 @@ async def test_a_plain_action_may_not_call_another() -> None:
 
 def held(task: Task) -> str:
     """Waits for a person."""
-    task.hold("Check the well")
-    return "went on"
+    decision = task.hold("Check the well", prompt=AssignPrompt(title="Check the well", description="Is it clean?"))
+    return f"{decision.approved}:{decision.answer}:{decision.auto}"
 
 
-async def test_a_hold_pauses_with_why_and_goes_on_when_resumed() -> None:
-    agent, transport = _agent(held)
+async def _until_held(agent: BaseAgent, transport: MemoryAgentTransport):  # noqa: ANN202
     transport.feed(_assign("held"))
     loop = _drive(agent)
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
-    async def paused() -> messages.Paused:
-        while not transport.of_type(messages.Paused):
+    async def waiting() -> messages.Held:
+        while not transport.of_type(messages.Held):
             await asyncio.sleep(0.01)
-        return transport.of_type(messages.Paused)[0]
+        return transport.of_type(messages.Held)[0]
 
-    pause = await asyncio.wait_for(paused(), timeout=5.0)
-    assert pause.message == "Check the well"
+    return loop, await asyncio.wait_for(waiting(), timeout=5.0)
 
-    transport.feed(messages.Resume(task="42"))
-    await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
+async def _returned(transport: MemoryAgentTransport) -> Any:  # noqa: ANN401
     async def done() -> None:
         while not transport.of_type(messages.Yield):
             await asyncio.sleep(0.01)
 
     await asyncio.wait_for(done(), timeout=5.0)
-    assert transport.of_type(messages.Yield)[0].returns == {"return0": "went on"}
-    assert [(e.key, e.value) for e in transport.of_type(messages.Effect)] == [("HOLD:1", "resumed")]
+    return transport.of_type(messages.Yield)[0].returns["return0"]
 
 
-async def test_a_hold_already_resumed_before_is_not_held_again() -> None:
+async def test_a_hold_is_held_with_why_and_returns_the_decision() -> None:
     agent, transport = _agent(held)
-
-    returns = await run_assignment(agent, _assign("held", {"last_step": 3, "effects": [{"key": "HOLD:1", "effect": "HOLD", "value": "resumed"}]}))
-
-    assert returns["return0"] == "went on"
+    loop, hold = await _until_held(agent, transport)
+    assert hold.message == "Check the well"
+    assert hold.prompt == AssignPrompt(title="Check the well", description="Is it clean?")
     assert transport.of_type(messages.Paused) == []
+
+    transport.feed(messages.Decide(task="42", approved=True, answer="looks fine"))
+    await asyncio.wait_for(loop.__anext__(), timeout=2.0)
+
+    assert await _returned(transport) == "True:looks fine:False"
+    assert [(e.key, e.value) for e in transport.of_type(messages.Effect)] == [
+        ("HOLD:1", {"approved": True, "answer": "looks fine", "auto": False})
+    ]
+
+
+async def test_a_denied_hold_goes_on_with_the_denial() -> None:
+    agent, transport = _agent(held)
+    loop, _ = await _until_held(agent, transport)
+
+    transport.feed(messages.Decide(task="42", approved=False, answer="not now"))
+    await asyncio.wait_for(loop.__anext__(), timeout=2.0)
+
+    assert await _returned(transport) == "False:not now:False"
+
+
+async def test_a_resume_never_answers_a_hold() -> None:
+    agent, transport = _agent(held)
+    loop, _ = await _until_held(agent, transport)
+
+    transport.feed(messages.Resume(task="42"))
+    await asyncio.wait_for(loop.__anext__(), timeout=2.0)
+    await asyncio.sleep(0.1)
+    assert transport.of_type(messages.Yield) == []
+
+    transport.feed(messages.Decide(task="42", approved=True, auto=True))
+    await asyncio.wait_for(loop.__anext__(), timeout=2.0)
+    assert await _returned(transport) == "True:None:True"
+
+
+async def test_a_hold_decided_before_is_not_held_again() -> None:
+    agent, transport = _agent(held)
+    recorded = {"key": "HOLD:1", "effect": "HOLD", "value": {"approved": False, "answer": "no", "auto": False}}
+
+    returns = await run_assignment(agent, _assign("held", {"last_step": 3, "effects": [recorded]}))
+
+    assert returns["return0"] == "False:no:False"
+    assert transport.of_type(messages.Held) == []
 
 
 class Guardian:

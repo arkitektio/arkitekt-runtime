@@ -22,8 +22,10 @@ from arkitekt_spec.actions import DefinitionInput
 from arkitekt_runtime.types import (
     HookInput,
     TaskEventKind,
+    TaskPolicy,
 )
-from arkitekt_spec.declare.errors import AgentLost, CriticalCallError, ErrorCallError
+from arkitekt_spec.declare.errors import AgentLost, CriticalCallError, DeniedError, ErrorCallError
+from arkitekt_spec.declare.task import AssignPrompt
 from arkitekt_runtime.messages import Assign, JSONSerializable
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_spec.declare.structures.registry import StructureRegistry
@@ -67,6 +69,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     escalate_to_interrupt: bool = False,
     cancel_timeout: float | None = None,
     call_key: str | None = None,
+    prompt: "AssignPrompt | None" = None,
+    policy: "TaskPolicy | None" = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the YIELD payloads of a task, returning on DONE.
 
@@ -78,6 +82,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         ErrorCallError: If the backend reports a task error.
         CriticalCallError: If the backend reports a critical task error.
         AgentLost: If the agent running the task died while it ran.
+        DeniedError: If a person refused to let the task run (it was held for approval).
         RootOnlyAssignError: If a ``parent``/``dependency``/``method`` call is routed
             to a postman that can only create root tasks.
     """
@@ -94,6 +99,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
         call_key=call_key,
+        prompt=prompt,
+        policy=policy,
     ):
         if i.kind == TaskEventKind.YIELD:
             yield i.returns
@@ -111,6 +118,11 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         # called decides, with what is known (``AgentLost.started`` and friends).
         if i.kind == TaskEventKind.LOST:
             raise AgentLost.from_details(getattr(i, "value", None), message=i.message)
+
+        # Held for approval and refused: nothing ran. Its own error, so the caller can
+        # tell "the person said no" from a failure.
+        if i.kind == TaskEventKind.DENIED:
+            raise DeniedError(i.message, task=getattr(i, "task", None))
 
         # CANCELLED and INTERRUPTED are terminal too. Somebody else (a user in the UI,
         # an interrupt cascading down a tree) can end a task this call is waiting on;

@@ -112,7 +112,8 @@ if TYPE_CHECKING:
     from arkitekt_runtime.postmans.types import Postman, TaskEventLike
     from types import TracebackType
 
-    from arkitekt_spec.declare.task import HookInput
+    from arkitekt_spec.declare.task import AssignPrompt, HookInput
+    from arkitekt_runtime.types import TaskPolicy
 
 
 NO_CALLER_MESSAGE = (
@@ -150,6 +151,8 @@ class NoCallerPostman:
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
+        policy: "TaskPolicy | None" = None,
     ) -> "AsyncGenerator[TaskEventLike, None]":
         """Refuse the call.
 
@@ -852,6 +855,7 @@ class BaseAgent(KoiledModel):
                 messages.Interrupt,
                 messages.Pause,
                 messages.Resume,
+                messages.Decide,
             ),
         ):
             await self._aprocess_provider_message(message)
@@ -927,7 +931,7 @@ class BaseAgent(KoiledModel):
 
     async def _aprocess_provider_message(
         self,
-        message: "messages.Assign | messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume",
+        message: "messages.Assign | messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume | messages.Decide",
     ) -> None:
         """Route work the backend assigned to this agent to the actor running it.
 
@@ -942,7 +946,7 @@ class BaseAgent(KoiledModel):
 
     async def _arun_provider_message(
         self,
-        message: "messages.Assign | messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume",
+        message: "messages.Assign | messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume | messages.Decide",
     ) -> None:
         if isinstance(message, messages.Assign):
             await self._aassign_to_actor(message)
@@ -1060,7 +1064,7 @@ class BaseAgent(KoiledModel):
 
     async def _aforward_to_running_actor(
         self,
-        message: "messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume",
+        message: "messages.Cancel | messages.Interrupt | messages.Pause | messages.Resume | messages.Decide",
     ) -> None:
         """Forward a lifecycle control message to the actor running that task."""
         if message.task not in self.managed_assignments:

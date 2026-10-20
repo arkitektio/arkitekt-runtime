@@ -12,6 +12,7 @@ values, the way a caller on the other side of a server would.
 """
 
 import asyncio
+import logging
 from types import TracebackType
 import uuid
 from typing import Any, Optional, Self, TypeVar
@@ -26,6 +27,8 @@ from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.agents.transport.base import AgentTransport
 from arkitekt_runtime.structures.serialization.expand import aexpand_returns
 from arkitekt_runtime.structures.serialization.shrink import ashrink_args
+
+logger = logging.getLogger(__name__)
 
 _CLOSED = object()
 
@@ -280,6 +283,10 @@ async def aiterate_local_raw(
                 raise LocalCallError(interface, message.error, critical=False)
             elif isinstance(message, (messages.Cancelled, messages.Interrupted)):
                 raise LocalCallCancelledError(interface, "it was cancelled")
+            elif isinstance(message, messages.Held):
+                # Nobody decides in-process: it carries on approved, as a local task does.
+                logger.warning("hold (an in-process call carries on, approved): %s", message.message)
+                transport.feed(messages.Decide(task=task, approved=True, auto=True))
     finally:
         transport.unwatch(watcher)
 

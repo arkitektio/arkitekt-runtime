@@ -35,7 +35,7 @@ from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError, StateChanged
 from arkitekt_spec.declare.task import StateRef, aretry, retry
-from arkitekt_spec.declare.task import AssignmentHook, LocalTask, LogLevel
+from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel
 from arkitekt_spec.declare.task import Task as TaskProtocol
 from arkitekt_runtime.messages import EffectKind
 
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
-    from arkitekt_spec.declare.task import HookInput
+    from arkitekt_spec.declare.task import AssignPrompt, HookInput
     from arkitekt_spec.declare.structures.registry import StructureRegistry
     from arkitekt_spec.declare.structures.types import JSONSerializable
 
@@ -265,28 +265,35 @@ class Task:
         response = await ask(parent=assignment.task, dependency=state.dependency, state=state.state, paths=paths)
         await self._helper.aeffect(EffectKind.RECORD, response.revision, key=key)
 
-    async def ahold(self, message: str, *, lost: AgentLost | None = None) -> None:
-        """Wait for a person: the task pauses with ``message`` until someone resumes it
-        (it carries on from here) or cancels it.
+    async def ahold(
+        self, message: str, *, prompt: "AssignPrompt | None" = None, lost: AgentLost | None = None
+    ) -> Decision:
+        """Wait for a person to decide: the task is HELD with ``message`` (and ``prompt``)
+        until someone approves or denies it, and returns their :class:`Decision`.
 
-        ``lost`` puts what is known about a lost step in front of whoever decides: what
-        running it again would do (its effects), how far it got. A resumed workflow that
-        was already resumed from this hold carries on without holding again.
+        A denial does not end the task: ``approved`` is False and it goes on. In a run in
+        auto-mode the server approves at once (``auto``). ``lost`` puts what is known
+        about a lost step in front of whoever decides: what running it again would do
+        (its effects), how far it got. A resumed workflow gets the decision it already
+        had back, without holding again: a denial stays a denial.
         """
-        found, _, key = await self._helper.areplay(EffectKind.HOLD)
+        found, recorded, key = await self._helper.areplay(EffectKind.HOLD)
         if found:
-            return
+            return Decision.model_validate(recorded)
         details = (
             {"started": lost.started, "last_progress": lost.last_progress, "effects": lost.effects, "task": lost.task}
             if lost is not None
             else None
         )
-        await self._helper.ahold(message, details)
-        await self._helper.aeffect(EffectKind.HOLD, "resumed", key=key)
+        decision = await self._helper.ahold(message, details, prompt)
+        await self._helper.aeffect(EffectKind.HOLD, decision.model_dump(mode="json"), key=key)
+        return decision
 
-    def hold(self, message: str, *, lost: AgentLost | None = None) -> None:
-        """Wait for a person (see :meth:`ahold`)."""
-        unkoil(self.ahold, message, lost=lost)
+    def hold(
+        self, message: str, *, prompt: "AssignPrompt | None" = None, lost: AgentLost | None = None
+    ) -> Decision:
+        """Wait for a person to decide (see :meth:`ahold`)."""
+        return unkoil(self.ahold, message, prompt=prompt, lost=lost)
 
     # -- calling ---------------------------------------------------------- #
 
@@ -329,6 +336,7 @@ class Task:
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
@@ -343,6 +351,11 @@ class Task:
         it is derived from the target, the args and how often this task made that call:
         pass your own when concurrent calls to the same target with the same args must
         be told apart (a flow engine names them by node).
+
+        Unless the run is in auto-mode, the server holds the child until a person
+        approves it; ``prompt`` is what they are shown about why, next to what the server
+        knows (the action, the agent, the arguments). A refusal raises
+        :class:`~arkitekt_spec.declare.errors.DeniedError`.
         """
         from arkitekt_runtime.invoke import _acall
 
@@ -359,6 +372,7 @@ class Task:
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
             call_key=call_key,
+            prompt=prompt,
             **kwargs,
         )
 
@@ -382,6 +396,7 @@ class Task:
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "AsyncGenerator[Any, None]":
         """Stream a generator action's yields as a child of this task."""
@@ -400,6 +415,7 @@ class Task:
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
             call_key=call_key,
+            prompt=prompt,
             **kwargs,
         ):
             yield value
@@ -426,6 +442,7 @@ class Task:
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
     ) -> Any:  # noqa: ANN401 -- the raw backend payload
         """Call with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _acall_raw
@@ -443,6 +460,7 @@ class Task:
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
             call_key=call_key,
+            prompt=prompt,
         )
 
     async def aiterate_raw(
@@ -457,6 +475,7 @@ class Task:
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
     ) -> "AsyncGenerator[Any, None]":
         """Stream with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _aiterate_raw
@@ -474,6 +493,7 @@ class Task:
             escalate_to_interrupt=escalate_to_interrupt,
             cancel_timeout=cancel_timeout,
             call_key=call_key,
+            prompt=prompt,
         ):
             yield value
 

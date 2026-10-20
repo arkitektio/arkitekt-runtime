@@ -1,5 +1,6 @@
 """An action is called in-process through the real agent: ports, hooks, states and all."""
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
@@ -13,6 +14,7 @@ from arkitekt_runtime.local import (
     local_agent,
 )
 from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_spec.declare.task import Task
 
 
 def add(a: int, b: int = 2) -> int:
@@ -60,6 +62,12 @@ def brighten(canvas: Canvas) -> Canvas:
     return Canvas([p + 1 for p in canvas.pixels])
 
 
+def asks_first(text: str, task: Task) -> str:
+    """Hold for a person, then say what they decided."""
+    decision = task.hold("May I?")
+    return f"{text}:{decision.approved}:{decision.auto}"
+
+
 @pytest.fixture()
 async def agent() -> AsyncIterator[BaseAgent]:
     registry = AppRegistry()
@@ -67,6 +75,7 @@ async def agent() -> AsyncIterator[BaseAgent]:
         registry.register(function)
     registry.register_memory_structure(Canvas, "@test/canvas")
     registry.register(brighten)
+    registry.register_workflow(asks_first)
     agent = local_agent(registry)
     await agent.aconnect(timeout=5.0)
     yield agent
@@ -128,3 +137,8 @@ async def test_an_agent_on_another_transport_is_refused() -> None:
     agent.transport = object()  # type: ignore[assignment]
     with pytest.raises(TypeError, match="local_agent"):
         await acall_local(agent, "add", 1)
+
+
+async def test_a_hold_in_process_carries_on_approved(agent: BaseAgent) -> None:
+    """Nobody decides in-process: the hold is approved, as a local task's is."""
+    assert await asyncio.wait_for(acall_local(agent, "asks_first", "x"), timeout=5) == "x:True:True"

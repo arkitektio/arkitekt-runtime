@@ -25,7 +25,7 @@ from arkitekt_spec.declare.actors.types import (
     PreparedDependencyVariables,
 )
 from arkitekt_runtime.actors.types import Agent
-from arkitekt_spec.declare.task import AssignmentHook
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision
 from arkitekt_runtime import messages
 from arkitekt_spec.actions import DefinitionInput, Execution
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
@@ -81,6 +81,10 @@ class Actor(BaseModel):
         default_factory=lambda: {}
     )
     _break_futures: dict[str, asyncio.Future[bool]] = PrivateAttr(
+        default_factory=lambda: {}
+    )
+    # Kept apart from the break futures: a pause's resume must never answer a hold.
+    _hold_futures: dict[str, asyncio.Future[messages.Decide]] = PrivateAttr(
         default_factory=lambda: {}
     )
     _running_assignment_hooks: dict[str, AssignmentHook] = PrivateAttr(
@@ -268,16 +272,36 @@ class Actor(BaseModel):
                 self.running_assignments.pop(key, None)
         return stopped
 
-    async def ahold(self: Self, task_id: str, message: str, details: dict[str, Any] | None = None) -> None:
-        """Pause ``task_id`` by itself until a person resumes it (``task.hold``).
+    async def ahold(
+        self: Self,
+        task_id: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+        prompt: AssignPrompt | None = None,
+    ) -> Decision:
+        """Hold ``task_id`` until a person decides (``task.hold``).
 
-        The same pause a Pause request makes, started from the task: PAUSED goes out with
-        why, and the task waits until a RESUME comes (or a cancel ends it).
+        HELD goes out with why, and the task waits until the server's DECIDE comes: a
+        person's answer, or auto-mode's approval. A cancel ends the wait.
         """
-        self._break_futures.setdefault(task_id, asyncio.Future())
-        await self.agent.asend(self, message=messages.Paused(task=task_id, message=message, details=details))
-        await self._break_futures[task_id]
-        await self.agent.asend(self, message=messages.Resumed(task=task_id))
+        future: asyncio.Future[messages.Decide] = asyncio.get_running_loop().create_future()
+        self._hold_futures[task_id] = future
+        try:
+            await self.agent.asend(
+                self, message=messages.Held(task=task_id, message=message, prompt=prompt, details=details)
+            )
+            decide = await future
+        finally:
+            self._hold_futures.pop(task_id, None)
+        return Decision(approved=decide.approved, answer=decide.answer, auto=decide.auto)
+
+    async def on_decide(self: Self, decide: messages.Decide) -> None:
+        """Answer the hold ``decide.task`` waits in."""
+        future = self._hold_futures.get(decide.task)
+        if future is None or future.done():
+            logger.warning(f"Actor {self.id} got a decision for {decide.task}, which holds for none")
+            return
+        future.set_result(decide)
 
     async def abreak(self: Self, task_id: str) -> bool:
         """A function to pause the actor. This is used to instruct the actor to
@@ -489,6 +513,9 @@ class Actor(BaseModel):
 
         elif isinstance(message, messages.Resume):
             await self.on_resume(message)
+
+        elif isinstance(message, messages.Decide):
+            await self.on_decide(message)
 
         else:
             raise UnknownMessageError(f"{message}")

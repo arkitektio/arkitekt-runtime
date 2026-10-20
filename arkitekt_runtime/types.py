@@ -43,12 +43,22 @@ class TaskEventKind(str, Enum):
     INTERRUPTED = 'INTERRUPTED'
     PAUSING = 'PAUSING'
     PAUSED = 'PAUSED'
+    HELD = 'HELD'
+    DECIDED = 'DECIDED'
+    DENIED = 'DENIED'
     RESUMING = 'RESUMING'
     RESUMED = 'RESUMED'
     FAILED = 'FAILED'
     CRITICAL = 'CRITICAL'
     LOST = 'LOST'
     LATE_REPORT = 'LATE_REPORT'
+    __str__ = str.__str__
+
+
+class TaskPolicy(str, Enum):
+    """Whether the work an agent asks for waits for a person. ASK: a child an agent assigns is held until a person approves it, and the task's own holds wait for a decision. AUTO (auto-mode): children run at once and holds are approved without asking. A root's is chosen on its assign; children inherit it."""
+    ASK = 'ASK'
+    AUTO = 'AUTO'
     __str__ = str.__str__
 
 
@@ -82,6 +92,7 @@ class AssignInput(BaseModel):
     capture: bool = Field(description='Whether to capture the task.')
     dependencies: tuple['ResolvedDependencyInput', ...] | None = Field(default=None, description='The dependencies of the task. This maps dependency keys to implementation IDs.')
     step: bool | None = Field(default=None, description='Whether the task should step. Ie. go to the next breakpoint')
+    policy: TaskPolicy | None = Field(default=None, description='Whether the work the agents ask for under this task waits for a person: ASK (the default) holds every child an agent assigns until someone approves it; AUTO runs them at once. Only a root takes it; children inherit.')
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
 
@@ -111,3 +122,11 @@ AssignInput.model_rebuild()
 CancelInput.model_rebuild()
 PauseInput.model_rebuild()
 ResumeInput.model_rebuild()
+
+
+class DecideInput(BaseModel):
+    """The input for deciding a held task."""
+    task: ID = Field(description='The held task: a child an agent asked for, or a task that holds itself')
+    approved: bool = Field(description="Approve (the child runs; a task's own hold carries on approved) or deny (the child ends DENIED without running; a task's own hold carries on denied)")
+    answer: str | None = Field(default=None, description="What the person says with the decision. A child gets it as its Assign's message; a task's own hold gets it back.")
+    model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)

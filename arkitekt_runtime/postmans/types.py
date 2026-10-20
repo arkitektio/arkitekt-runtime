@@ -10,8 +10,8 @@ from collections.abc import AsyncGenerator, Sequence
 
 from arkitekt_spec.scalars import ID
 
-from arkitekt_runtime.types import TaskEventKind
-from arkitekt_spec.declare.task import HookInput
+from arkitekt_runtime.types import TaskEventKind, TaskPolicy
+from arkitekt_spec.declare.task import AssignPrompt, HookInput
 
 
 @runtime_checkable
@@ -75,6 +75,8 @@ class Postman(Protocol):
         escalate_to_interrupt: bool = False,
         cancel_timeout: float | None = None,
         call_key: str | None = None,
+        prompt: "AssignPrompt | None" = None,
+        policy: "TaskPolicy | None" = None,
     ) -> AsyncGenerator[TaskEventLike, None]:
         """Originate a task and stream its events.
 
@@ -115,6 +117,13 @@ class Postman(Protocol):
             call_key: What the parent calls this child, which a resuming workflow finds
                 it again by. Only the agent socket can express this; it derives one
                 when ``None``.
+            prompt: Why the caller wants the child run, shown to the person who
+                approves it: unless the run is in auto-mode the server holds a child
+                until someone does. Only the agent socket can express this; a root is
+                never held.
+            policy: Whether the work agents ask for under a root waits for a person
+                (ASK, the server's default) or runs at once (AUTO, auto-mode). Only a
+                root takes one; a child inherits its parent's, whatever it asks for.
 
         Raises:
             RootOnlyAssignError: By a root-only transport, if ``parent``,

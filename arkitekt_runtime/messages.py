@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model
 from enum import Enum
 from pydantic import Field
 import uuid
+from arkitekt_spec.declare.task import AssignPrompt
 
 
 JSONSerializable = (
@@ -64,6 +65,8 @@ class ToAgentMessageType(str, Enum):
     RESUME = "RESUME"
     PAUSE = "PAUSE"
     INTERRUPT = "INTERRUPT"
+    # The answer to a task's own hold (HELD).
+    DECIDE = "DECIDE"
     PROVIDE = "PROVIDE"
     UNPROVIDE = "UNPROVIDE"
     INIT = "INIT"
@@ -96,6 +99,8 @@ class ToAgentMessageType(str, Enum):
     INTERRUPTED_EVENT = "INTERRUPTED_EVENT"
     PAUSING_EVENT = "PAUSING_EVENT"
     PAUSED_EVENT = "PAUSED_EVENT"
+    HELD_EVENT = "HELD_EVENT"
+    DENIED_EVENT = "DENIED_EVENT"
     RESUMING_EVENT = "RESUMING_EVENT"
     RESUMED_EVENT = "RESUMED_EVENT"
     FAILED_EVENT = "FAILED_EVENT"
@@ -116,6 +121,8 @@ class FromAgentMessageType(str, Enum):
     YIELD = "YIELD"
     FAILED = "FAILED"
     PAUSED = "PAUSED"
+    # The task waits for a person's decision (task.hold); answered by DECIDE.
+    HELD = "HELD"
     CRITICAL = "CRITICAL"
     RESUMED = "RESUMED"
     CANCELLED = "CANCELLED"
@@ -333,6 +340,20 @@ class Resume(Message):
     step: bool = False
 
 
+class Decide(Message):
+    """The answer to a task's own hold (``Held``).
+
+    A person approved or denied it, or the run is in auto-mode (``auto``) and the server
+    approved it without asking. A denial does not end the task.
+    """
+
+    type: Literal[ToAgentMessageType.DECIDE] = ToAgentMessageType.DECIDE
+    task: str
+    approved: bool
+    answer: str | None = None
+    auto: bool = False
+
+
 class Cancel(Message):
     """A cancel call
 
@@ -406,6 +427,18 @@ class Paused(FromAgentEvent):
     task: str
     message: str | None = None
     """Why it paused, when the task paused itself (``task.hold``)."""
+    details: dict[str, Any] | None = None
+    """What a person deciding may want to know (``task.hold(lost=...)``: the lost step)."""
+
+
+class Held(FromAgentEvent):
+    """The task waits for a person's decision (``task.hold``); the server answers with
+    ``Decide``. Unlike ``Paused``, the answer comes back to the task."""
+
+    type: Literal[FromAgentMessageType.HELD] = FromAgentMessageType.HELD
+    task: str
+    message: str | None = None
+    prompt: AssignPrompt | None = None
     details: dict[str, Any] | None = None
     """What a person deciding may want to know (``task.hold(lost=...)``: the lost step)."""
 
@@ -610,7 +643,7 @@ class EffectKind(str, Enum):
     RECORD = "RECORD"
     """Any value the task took through ``task.record(fn)``: JSON."""
     HOLD = "HOLD"
-    """A hold a person resumed: ``value`` is ``"resumed"``."""
+    """A hold's decision: ``value`` is the ``Decision`` (``approved``, ``answer``, ``auto``)."""
 
 
 class RecordedEffect(BaseModel):
@@ -864,6 +897,10 @@ class AssignRequest(Message):
     )
     step: bool | None = Field(
         default=None, description="Whether to step to breakpoints."
+    )
+    prompt: AssignPrompt | None = Field(
+        default=None,
+        description="Why the caller wants the child run. Unless the run is in auto-mode the server holds the child until a person approves it, and shows this next to what it knows.",
     )
 
 
@@ -1205,6 +1242,20 @@ class PausedEvent(ExecutionEvent):
     type: Literal[ToAgentMessageType.PAUSED_EVENT] = ToAgentMessageType.PAUSED_EVENT
 
 
+class HeldEvent(ExecutionEvent):
+    """The child waits for a person to approve it: nothing runs until someone does."""
+
+    type: Literal[ToAgentMessageType.HELD_EVENT] = ToAgentMessageType.HELD_EVENT
+    prompt: AssignPrompt | None = None
+
+
+class DeniedEvent(ExecutionEvent):
+    """A person refused to let the child run: it ended without ever starting."""
+
+    type: Literal[ToAgentMessageType.DENIED_EVENT] = ToAgentMessageType.DENIED_EVENT
+    answer: str | None = None
+
+
 class ResumingEvent(ExecutionEvent):
     """The task is being resumed."""
 
@@ -1261,6 +1312,8 @@ ExecutionEventMessage = (
     | InterruptedEvent
     | PausingEvent
     | PausedEvent
+    | HeldEvent
+    | DeniedEvent
     | ResumingEvent
     | ResumedEvent
     | FailedEvent
@@ -1288,6 +1341,7 @@ TERMINAL_EVENT_MIRRORS = (
     CancelledEvent,
     InterruptedEvent,
     LostEvent,
+    DeniedEvent,
 )
 
 
@@ -1299,6 +1353,7 @@ ToAgentMessage = Union[
     Heartbeat,
     Pause,
     Resume,
+    Decide,
     Collect,
     Shelved,
     Unshelved,
@@ -1326,6 +1381,7 @@ FromAgentMessage = (
     | HeartbeatEvent
     | Resumed
     | Paused
+    | Held
     | Cancelled
     | Interrupted
     | StatePatch
