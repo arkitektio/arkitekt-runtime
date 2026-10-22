@@ -41,23 +41,24 @@ def _make_path(base: str, key: str | int) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class Mutation:
-    """Who is changing a state: the task (for the patches' correlation) and the
-    locks it holds. ``locks=None`` means unrestricted: a state being constructed.
+    """Who is changing a state: the task, for the patches' correlation.
 
     With a ``gate`` (the task's), a change is refused -- before anything is
     changed -- once the task's end has been reported.
+
+    Locks play no part here. A state's ``required_locks`` are the locks an action
+    taking it holds (inferred when the action is declared), so two tasks never
+    command the same thing at once; who may *write* the state is not restricted.
+    A change made outside a task (a manager's, a background hook's) is simply
+    not correlated with one.
     """
 
     correlation_id: str | None = None
-    locks: frozenset[str] | None = frozenset()
     gate: TaskGate | None = dataclasses.field(default=None, compare=False)
 
 
-UNRESTRICTED = Mutation(locks=None)
-"""What a state is changed as before an agent adopts it (its startup hook builds it)."""
-
-UNLOCKED = Mutation()
-"""What an adopted state is changed as outside a task: no task, no locks held."""
+OUTSIDE_TASK = Mutation()
+"""What a change made on the state object itself (not through a task's view) counts as."""
 
 
 @dataclasses.dataclass
@@ -70,11 +71,8 @@ class StateConfig:
 
     state_name: str
     definition: StateDefinitionInput
-    required_locks: list[str] = dataclasses.field(default_factory=list)
     publisher: StateHolder | None = dataclasses.field(default=None, compare=False)
     """Where patches go: the agent that adopted the state. None until then."""
-    default_mutation: Mutation = dataclasses.field(default=UNRESTRICTED, compare=False)
-    """What a change made on the object itself (not through a task's view) counts as."""
     active: Mutation | None = dataclasses.field(default=None, init=False, compare=False)
     """The mutation a task's write view is making right now, for one operation."""
     lock: threading.RLock = dataclasses.field(
@@ -88,12 +86,11 @@ class StateConfig:
         return cls(
             state_name=declaration.interface,
             definition=declaration.definition,
-            required_locks=list(declaration.required_locks),
         )
 
     @property
     def mutation(self) -> Mutation:
-        return self.active or self.default_mutation
+        return self.active or OUTSIDE_TASK
 
     @contextlib.contextmanager
     def mutating(self, mutation: Mutation) -> Iterator[None]:
@@ -137,13 +134,11 @@ def evented(obj: Any, declaration: StateDeclaration) -> Any:  # noqa: ANN401
 
 
 def adopt(obj: Any, publisher: StateHolder) -> None:  # noqa: ANN401
-    """An agent takes a state over: its patches go to ``publisher`` from now on, and a
-    change made outside a task holds no locks."""
+    """An agent takes a state over: its patches go to ``publisher`` from now on."""
     config = config_of(obj)
     if config is None:
         return
     config.publisher = publisher
-    config.default_mutation = UNLOCKED
 
 
 def _publish_patch(config: StateConfig, patch: Patch) -> None:
@@ -202,20 +197,6 @@ V = TypeVar("V")
 D = TypeVar("D")
 
 
-def _require_locks(config: StateConfig, path: str) -> None:
-    """Raise unless the mutation in progress holds every lock the state requires."""
-    acquired_locks = config.mutation.locks
-    if acquired_locks is None:
-        return
-    missing_locks = [
-        lock for lock in config.required_locks if lock not in acquired_locks
-    ]
-    if missing_locks:
-        raise RuntimeError(
-            f"Cannot modify state '{config.state_name}' at path '{path}' without required locks: {missing_locks}"
-        )
-
-
 class EventedDict(dict[K, V], Generic[K, V]):
     """A dictionary wrapper that emits JSON Patch operations on modification.
 
@@ -238,7 +219,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
         self._port = port
 
     def __setitem__(self, key: K, value: V) -> None:
-        _require_locks(self._config, self._path)
         full_path = _make_path(self._path, key)
         exists = key in self
         old_value = self.get(key) if exists else None
@@ -259,7 +239,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
         )
 
     def __delitem__(self, key: K) -> None:
-        _require_locks(self._config, self._path)
         full_path = _make_path(self._path, key)
         old_value = self[key]
         child_port = _resolve_child_port(self._config, self._port, key)
@@ -288,7 +267,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
 
         Emits a 'remove' patch if the key exists.
         """
-        _require_locks(self._config, self._path)
         if key in self:
             full_path = _make_path(self._path, key)
             old_value = self[key]
@@ -315,7 +293,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
 
         Emits a 'remove' patch for the removed item.
         """
-        _require_locks(self._config, self._path)
         key, value = super().popitem()
         full_path = _make_path(self._path, key)
         child_port = _resolve_child_port(self._config, self._port, key)
@@ -336,7 +313,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
 
         Emits a 'remove' patch for each key.
         """
-        _require_locks(self._config, self._path)
         keys = list(self.keys())
         for key in keys:
             del self[key]
@@ -346,7 +322,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
 
         Emits an 'add' patch only if the key was not present.
         """
-        _require_locks(self._config, self._path)
         if key not in self:
             self[key] = default
         return self[key]
@@ -360,7 +335,6 @@ class EventedDict(dict[K, V], Generic[K, V]):
 
         Emits 'add' or 'replace' patches for each key.
         """
-        _require_locks(self._config, self._path)
         if other is not None:
             if hasattr(other, "keys"):
                 mapping = cast("SupportsKeysAndGetItem[K, V]", other)
@@ -423,7 +397,6 @@ class EventedList(list[T], Generic[T]):
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
     def __setitem__(self, index: SupportsIndex | slice, value: T | Iterable[T]) -> None:
-        _require_locks(self._config, self._path)
         if isinstance(index, slice):
             # Expand slice assignment into the single-index primitives so the
             # emitted patches are valid RFC-6902 operations: remove the old
@@ -466,7 +439,6 @@ class EventedList(list[T], Generic[T]):
             )
 
     def __delitem__(self, index: SupportsIndex | slice) -> None:
-        _require_locks(self._config, self._path)
         if isinstance(index, slice):
             # Handle slice deletion
             indices = sorted(range(*index.indices(len(self))), reverse=True)
@@ -498,7 +470,6 @@ class EventedList(list[T], Generic[T]):
         Per RFC 6902, uses '/-' to indicate appending to end of array.
         """
         # Use the special '-' path element for array append per RFC 6902
-        _require_locks(self._config, self._path)
         append_path = f"{self._path}/-"
 
         # The actual index for the evented item's path reference
@@ -520,7 +491,6 @@ class EventedList(list[T], Generic[T]):
 
         Emits an 'add' patch at the specified index.
         """
-        _require_locks(self._config, self._path)
         # Normalize negative index
         idx = index.__index__()
         if idx < 0:
@@ -546,7 +516,6 @@ class EventedList(list[T], Generic[T]):
 
         Emits an 'add' patch for each item.
         """
-        _require_locks(self._config, self._path)
         for item in items:
             self.append(item)
 
@@ -555,7 +524,6 @@ class EventedList(list[T], Generic[T]):
 
         Emits a 'remove' patch.
         """
-        _require_locks(self._config, self._path)
         # Convert to int
         idx: int = index.__index__() if hasattr(index, "__index__") else int(index)  # type: ignore
         # Normalize negative index
@@ -586,7 +554,6 @@ class EventedList(list[T], Generic[T]):
 
         Emits a 'remove' patch at the item's index.
         """
-        _require_locks(self._config, self._path)
         index = self.index(item)
         del self[index]
 
@@ -595,13 +562,11 @@ class EventedList(list[T], Generic[T]):
 
         Emits a 'remove' patch for each item, from end to start.
         """
-        _require_locks(self._config, self._path)
         while len(self) > 0:
             self.pop()
 
     def _reorder(self, operation: Callable[[], None]) -> None:
         """Run an in-place reordering and emit 'replace' patches for moved slots."""
-        _require_locks(self._config, self._path)
         old_items = list(self)
         operation()
 
@@ -662,13 +627,11 @@ class EventedList(list[T], Generic[T]):
 
     def __iadd__(self, other: Iterable[T]) -> "EventedList[T]":
         """Implement += operator."""
-        _require_locks(self._config, self._path)
         self.extend(other)
         return self
 
     def __imul__(self, n: SupportsIndex) -> "EventedList[T]":  # type: ignore[override]
         """Implement *= operator."""
-        _require_locks(self._config, self._path)
         count = n.__index__() if hasattr(n, "__index__") else int(n)  # type: ignore
         if count <= 0:
             self.clear()
@@ -744,7 +707,6 @@ def make_evented(
 
         # 3. Create the interceptor hook
         def setattr_hook(self, name, value):
-            _require_locks(self._event_config, self._event_path)
             if name.startswith("_"):
                 super(EventedClass, self).__setattr__(name, value)
                 return

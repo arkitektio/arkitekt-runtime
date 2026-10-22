@@ -575,7 +575,7 @@ class BaseAgent(KoiledModel):
         return await waiter
 
     def state_required_locks(self, interface: str) -> tuple[str, ...]:
-        """The locks an action must hold to change the state ``interface`` (none for a
+        """The locks an action taking the state ``interface`` holds (none for a
         state this agent does not have)."""
         cls = self.app_registry.state_interface_classes.get(interface)
         if cls is None:

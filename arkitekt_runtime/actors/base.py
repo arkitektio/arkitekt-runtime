@@ -647,7 +647,6 @@ class SerializingActor(Actor):
                     interface,
                     Mutation(
                         correlation_id=assignment.task if assignment else None,
-                        locks=frozenset(self.locks or ()),
                         gate=self._task_gate(assignment),
                     ),
                 )

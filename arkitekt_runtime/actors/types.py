@@ -148,7 +148,7 @@ class ActorContext(Shelver, LockHost, Capturable, Protocol):
         ...
 
     def state_required_locks(self, interface: str) -> tuple[str, ...]:
-        """The locks an action must hold to change the state ``interface``."""
+        """The locks an action taking the state ``interface`` holds."""
         ...
 
 

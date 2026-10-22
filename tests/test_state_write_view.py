@@ -30,11 +30,10 @@ class Recorder:
         self.patches.append((patch.op, patch.path, patch.correlation_id))  # type: ignore[attr-defined]
 
 
-def board(required_locks: list[str] | None = None) -> Board:
+def board() -> Board:
     config = StateConfig(
         state_name="Board",
         definition=StateDefinitionInput(ports=(), name="Board"),
-        required_locks=required_locks or [],
     )
     return make_evented(Board(), config, "")
 
@@ -77,20 +76,20 @@ def test_two_tasks_views_of_one_state_stay_apart() -> None:
     assert len(state.items) == 100
 
 
-def test_the_locks_a_view_holds_are_the_ones_checked() -> None:
-    state = board(required_locks=["stage"])
-    adopt(state, Recorder())
+def test_locks_do_not_guard_writes() -> None:
+    """A lock keeps two tasks from commanding a thing at once; it does not say who may
+    write the state. A manager or a background hook writes it directly, uncorrelated."""
+    state, recorder = board(), Recorder()
+    adopt(state, recorder)
 
-    write_view(state, Mutation(correlation_id="t", locks=frozenset({"stage"}))).count = 1
-    with pytest.raises(RuntimeError, match="without required locks"):
-        write_view(state, Mutation(correlation_id="t", locks=frozenset())).count = 2
-    with pytest.raises(RuntimeError, match="without required locks"):
-        state.count = 3  # adopted: outside a task no locks are held
-    assert state.count == 1
+    write_view(state, Mutation(correlation_id="t")).count = 1
+    state.count = 2  # outside any task
+    assert state.count == 2
+    assert recorder.patches == [("replace", "/count", "t"), ("replace", "/count", None)]
 
 
-def test_a_state_is_built_freely_before_it_is_adopted() -> None:
-    state, recorder = board(required_locks=["stage"]), Recorder()
+def test_a_state_is_built_before_it_is_adopted_without_patches() -> None:
+    state, recorder = board(), Recorder()
     state.count = 5  # the startup hook building it
     adopt(state, recorder)
     assert state.count == 5 and recorder.patches == []
@@ -136,5 +135,4 @@ def config_of() -> StateConfig:
     return StateConfig(
         state_name="Board",
         definition=StateDefinitionInput(ports=(), name="Board"),
-        required_locks=[],
     )

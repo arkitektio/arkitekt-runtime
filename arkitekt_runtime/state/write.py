@@ -1,8 +1,7 @@
 """A task's writeable view of a state.
 
 Many tasks write the same state instance, and every change has to say which task
-made it (the patch's correlation) and which locks it holds (a state can require
-some). A view carries that, explicitly: each task gets its own view, made for its
+made it (the patch's correlation). A view carries that, explicitly: each task gets its own view, made for its
 assignment, and a change made through it counts as that task's.
 
 Like :mod:`rekuest.state.readonly`, a view is a *subclass of the state's own class
@@ -13,7 +12,7 @@ progress; nested lists, dicts and dataclasses are wrapped on the way out, so
 
 Known limit, as for read-only views: a *method defined on the state class* that
 mutates ``self`` writes through the underlying object, as a change made outside a
-task (no correlation, no locks held).
+task (no correlation).
 """
 
 import weakref

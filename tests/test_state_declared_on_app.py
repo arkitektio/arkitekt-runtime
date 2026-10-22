@@ -62,6 +62,6 @@ def test_adoption_makes_an_instance_evented_with_the_adopting_apps_rules() -> No
     two = evented(Counter(), b.structure_registry.state_for(Counter))
 
     assert isinstance(one, Counter) and isinstance(two, Counter)
-    assert config_of(one).state_name == "CounterA" and config_of(one).required_locks == ["a"]
-    assert config_of(two).state_name == "CounterB" and config_of(two).required_locks == ["b"]
+    assert config_of(one).state_name == "CounterA"
+    assert config_of(two).state_name == "CounterB"
     assert config_of(one) is not config_of(two)
