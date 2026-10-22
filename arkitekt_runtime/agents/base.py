@@ -1698,6 +1698,14 @@ class BaseAgent(KoiledModel):
         """Run the background tasks. This will be called when the agent starts."""
 
         for name, worker in self._collected_background_workers.items():
+            missing = self._unprovided_contexts(worker)
+            if missing:
+                logger.info(
+                    "Background worker %s not started: no startup hook provided %s",
+                    name,
+                    ", ".join(missing),
+                )
+                continue
             task = asyncio.create_task(
                 worker.arun(
                     self,
@@ -1711,6 +1719,12 @@ class BaseAgent(KoiledModel):
                 lambda task, name=name: self._on_background_done(name, task)
             )
             self._background_tasks[name] = task
+
+    def _unprovided_contexts(self, hook: object) -> list[str]:
+        """The contexts ``hook`` takes that no startup hook provided (it returned ``None``)."""
+        variables = getattr(hook, "context_variables", None)
+        wanted = getattr(variables, "context_variables", None) or {}
+        return [interface for interface in wanted.values() if interface not in self.contexts]
 
     def _on_background_done(self, name: str, task: "asyncio.Task[None]") -> None:
         """Done-callback for background worker tasks. Removes the task from the
@@ -1786,6 +1800,14 @@ class BaseAgent(KoiledModel):
         self._ran_startup_hooks = False
 
         for key, hook in reversed(list(self._collected_shutdown_hooks.items())):
+            missing = self._unprovided_contexts(hook)
+            if missing:
+                logger.info(
+                    "Shutdown hook %s not run: no startup hook provided %s",
+                    key,
+                    ", ".join(missing),
+                )
+                continue
             try:
                 await asyncio.wait_for(
                     hook.arun(

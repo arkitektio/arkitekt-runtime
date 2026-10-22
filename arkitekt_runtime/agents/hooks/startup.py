@@ -49,22 +49,32 @@ class WrappedStartupHook(StartupWithVariables):
         """
         parsed_returns = await self.func(**self.get_startup_kwargs(app_context, bound_app))
 
-        returns = ensure_return_as_tuple(parsed_returns)
+        return _split_returns(self, ensure_return_as_tuple(parsed_returns))
 
-        states: dict[str, Any] = {}
-        contexts: dict[str, Any] = {}
 
-        for index, return_value in enumerate(returns):
-            if index in self.state_returns.state_returns:
-                states[self.state_returns.state_returns[index]] = return_value
-            elif index in self.context_returns.context_returns:
-                contexts[self.context_returns.context_returns[index]] = return_value
-            else:
-                raise StartupHookError(
-                    f"Startup hook must return state or context variables. Other returns are not allowed {self.context_returns}, {self.state_returns}"
-                )
+def _split_returns(hook: StartupWithVariables, returns: tuple[Any, ...]) -> StartupHookReturns:
+    """A startup hook's returns, by the state or context each slot is annotated with.
 
-        return StartupHookReturns(states=states, contexts=contexts)
+    A context slot may be ``None``: the hook does not provide that context (a device
+    the setup does not have, say). Actions needing it fail when called, and background
+    and shutdown hooks needing it are not run. A state is always required.
+    """
+    states: dict[str, Any] = {}
+    contexts: dict[str, Any] = {}
+
+    for index, return_value in enumerate(returns):
+        if index in hook.state_returns.state_returns:
+            states[hook.state_returns.state_returns[index]] = return_value
+        elif index in hook.context_returns.context_returns:
+            if return_value is not None:
+                contexts[hook.context_returns.context_returns[index]] = return_value
+        else:
+            raise StartupHookError(
+                "Startup hook must return state or context variables. Other returns are not "
+                f"allowed {hook.context_returns}, {hook.state_returns}"
+            )
+
+    return StartupHookReturns(states=states, contexts=contexts)
 
 
 class ThreadedStartupHook(StartupWithVariables):
@@ -99,22 +109,7 @@ class ThreadedStartupHook(StartupWithVariables):
             **self.get_startup_kwargs(app_context, bound_app),  # type: ignore[arg-type]
         )
 
-        returns = ensure_return_as_tuple(parsed_returns)
-
-        states: dict[str, Any] = {}
-        contexts: dict[str, Any] = {}
-
-        for index, return_value in enumerate(returns):
-            if index in self.state_returns.state_returns:
-                states[self.state_returns.state_returns[index]] = return_value
-            elif index in self.context_returns.context_returns:
-                contexts[self.context_returns.context_returns[index]] = return_value
-            else:
-                raise StartupHookError(
-                    "Startup hook must return state or context variables. Other returns are not allowed"
-                )
-
-        return StartupHookReturns(states=states, contexts=contexts)
+        return _split_returns(self, ensure_return_as_tuple(parsed_returns))
 
 
 # --- Implementation ---
