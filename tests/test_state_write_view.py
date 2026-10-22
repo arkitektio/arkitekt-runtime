@@ -1,4 +1,4 @@
-"""A task changes a state through its own view: its changes carry its id and its locks.
+"""A task changes a state through its own view: its changes carry its id.
 
 No context variable says which task is changing a state; the view the task was
 handed does.
@@ -8,7 +8,6 @@ import dataclasses
 import gc
 import threading
 
-import pytest
 
 from arkitekt_spec.actions import StateDefinitionInput
 from arkitekt_runtime.state.observable import Mutation, StateConfig, adopt, make_evented
