@@ -28,7 +28,8 @@ from arkitekt_spec.declare.actors.types import (
     PreparedDependencyVariables,
 )
 from arkitekt_runtime.actors.types import Agent
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision
+from arkitekt_spec.declare.errors import BlokRefused
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
 from arkitekt_runtime import messages
 from arkitekt_spec.actions import DefinitionInput, Execution
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
@@ -331,22 +332,40 @@ class Actor(BaseModel):
         message: str,
         details: dict[str, Any] | None = None,
         prompt: AssignPrompt | None = None,
+        blok: TaskBlok | None = None,
     ) -> Decision:
-        """Hold ``task_id`` until a person decides (``task.hold``).
+        """Hold ``task_id`` until a person decides (``task.hold``), or answers through
+        ``blok`` (``task.ask``).
 
         HELD goes out with why, and the task waits until the server's DECIDE comes: a
-        person's answer, or auto-mode's approval. A cancel ends the wait.
+        person's answer, or auto-mode's approval. A cancel ends the wait. A blok the server
+        cannot make comes back as BLOK_REFUSED, raised here as :class:`BlokRefused`.
         """
         future: asyncio.Future[messages.Decide] = asyncio.get_running_loop().create_future()
         self._hold_futures[task_id] = future
         try:
             await self.agent.asend(
-                self, message=messages.Held(task=task_id, message=message, prompt=prompt, details=details)
+                self,
+                message=messages.Held(task=task_id, message=message, prompt=prompt, details=details, blok=blok),
             )
             decide = await future
         finally:
             self._hold_futures.pop(task_id, None)
-        return Decision(approved=decide.approved, answer=decide.answer, auto=decide.auto)
+        return Decision(approved=decide.approved, answer=decide.answer, auto=decide.auto, values=decide.values)
+
+    async def ainform(self: Self, task_id: str, blok: TaskBlok, message: str | None = None) -> None:
+        """Show a person ``blok`` while ``task_id`` goes on (``task.inform``). Nothing waits:
+        a refusal, should one come, is logged (:meth:`on_blok_refused`)."""
+        await self.agent.asend(self, message=messages.Inform(task=task_id, message=message, blok=blok))
+
+    async def on_blok_refused(self: Self, refused: messages.BlokRefused) -> None:
+        """A blok ``refused.task`` sent could not be made: the ask waiting on it raises
+        :class:`BlokRefused`; an inform's is only logged, as nothing waits for it."""
+        future = self._hold_futures.get(refused.task)
+        if future is None or future.done():
+            logger.warning("The blok task %s showed was refused: %s", refused.task, refused.reason)
+            return
+        future.set_exception(BlokRefused(refused.reason, task=refused.task))
 
     async def on_decide(self: Self, decide: messages.Decide) -> None:
         """Answer the hold ``decide.task`` waits in."""
@@ -578,6 +597,9 @@ class Actor(BaseModel):
 
         elif isinstance(message, messages.Decide):
             await self.on_decide(message)
+
+        elif isinstance(message, messages.BlokRefused):
+            await self.on_blok_refused(message)
 
         else:
             raise UnknownMessageError(f"{message}")

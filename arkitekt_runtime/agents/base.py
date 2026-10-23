@@ -895,6 +895,8 @@ class BaseAgent(KoiledModel):
             ),
         ):
             await self._aprocess_provider_message(message)
+        elif isinstance(message, messages.BlokRefused):
+            await self._aprocess_blok_refused(message)
         elif isinstance(message, messages.Collect):
             for key in message.drawers:
                 await self.acollect(key)
@@ -1118,6 +1120,16 @@ class BaseAgent(KoiledModel):
 
         assignment = self.managed_assignments[message.task]
         actor = self.managed_actors[assignment.interface]
+        await actor.apass(message)
+
+    async def _aprocess_blok_refused(self, message: "messages.BlokRefused") -> None:
+        """Hand a refused blok to the actor whose task sent it; for a task gone since,
+        there is nobody left to tell, so it is only logged."""
+        assignment = self.managed_assignments.get(message.task)
+        actor = self.managed_actors.get(assignment.interface) if assignment is not None else None
+        if actor is None:
+            logger.warning("The blok of task %s was refused, and the task is gone: %s", message.task, message.reason)
+            return
         await actor.apass(message)
 
     # ----------------------------------------------------------------- caller

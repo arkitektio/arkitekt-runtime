@@ -10,7 +10,7 @@ from arkitekt_runtime import messages
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.errors import NonDeterministicWorkflow
 from arkitekt_runtime.actors.types import Actor
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
 
 
 @runtime_checkable
@@ -156,10 +156,19 @@ class AssignmentHelper(BaseModel):
         return True, entry.value, key
 
     async def ahold(
-        self, message: str, details: dict[str, Any] | None = None, prompt: "AssignPrompt | None" = None
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        prompt: "AssignPrompt | None" = None,
+        blok: "TaskBlok | None" = None,
     ) -> "Decision":
-        """Hold the task until a person decides (or auto-mode does), and return the decision."""
-        return await self.actor.ahold(self.assignment.task, message, details, prompt)
+        """Hold the task until a person decides (or auto-mode does), or answers through
+        ``blok``, and return the decision."""
+        return await self.actor.ahold(self.assignment.task, message, details, prompt, blok)
+
+    async def ainform(self, blok: "TaskBlok", message: str | None = None) -> None:
+        """Show a person ``blok`` while the task goes on."""
+        await self.actor.ainform(self.assignment.task, blok, message)
 
     @property
     def execution(self) -> Execution:

@@ -35,7 +35,7 @@ from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError, StateChanged
 from arkitekt_spec.declare.task import StateRef, aretry, retry
-from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel
+from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel, TaskBlok, as_task_blok
 from arkitekt_spec.declare.task import Task as TaskProtocol
 from arkitekt_runtime.messages import EffectKind
 
@@ -70,6 +70,11 @@ def _json(value: Any) -> Any:  # noqa: ANN401
         raise TypeError(f"task.record(...) records JSON only; got {type(value).__name__}: {e}") from None
     return value
 
+
+
+def _recorded(decision: Decision) -> dict[str, Any]:
+    """A decision as a workflow records it: a hold's without ``values``, as before asks had them."""
+    return decision.model_dump(mode="json", exclude={"values"} if decision.values is None else None)
 
 class Task:
     """One running assignment, as the action that runs it sees it."""
@@ -286,7 +291,7 @@ class Task:
             else None
         )
         decision = await self._helper.ahold(message, details, prompt)
-        await self._helper.aeffect(EffectKind.HOLD, decision.model_dump(mode="json"), key=key)
+        await self._helper.aeffect(EffectKind.HOLD, _recorded(decision), key=key)
         return decision
 
     def hold(
@@ -294,6 +299,55 @@ class Task:
     ) -> Decision:
         """Wait for a person to decide (see :meth:`ahold`)."""
         return unkoil(self.ahold, message, prompt=prompt, lost=lost)
+
+    async def aask(
+        self,
+        blok: "TaskBlok | str",
+        message: str,
+        *,
+        args: dict[str, Any] | None = None,
+        returns: list[dict[str, Any]] | None = None,
+        prompt: "AssignPrompt | None" = None,
+    ) -> Decision:
+        """Ask a person through a blok: the task is HELD on ``blok`` (a :class:`TaskBlok`,
+        or BSX source) until they answer in it or dismiss it.
+
+        Answered, the decision is approved and its ``values`` are what the blok answered
+        (``@utils.blok.answer(values={...})``), checked by the server against its ``returns``.
+        Dismissed, it is not approved and has none. Auto-mode cannot answer for a person,
+        so an ask waits in every run. Raises :class:`BlokRefused` when the server cannot
+        make the blok, with why: fix it and ask again. A resumed workflow gets the answer it
+        already had back, without asking again.
+        """
+        task_blok = as_task_blok(blok, args=args, returns=returns)
+        found, recorded, key = await self._helper.areplay(EffectKind.HOLD)
+        if found:
+            return Decision.model_validate(recorded)
+        decision = await self._helper.ahold(message, None, prompt, task_blok)
+        await self._helper.aeffect(EffectKind.HOLD, _recorded(decision), key=key)
+        return decision
+
+    def ask(
+        self,
+        blok: "TaskBlok | str",
+        message: str,
+        *,
+        args: dict[str, Any] | None = None,
+        returns: list[dict[str, Any]] | None = None,
+        prompt: "AssignPrompt | None" = None,
+    ) -> Decision:
+        """Ask a person through a blok (see :meth:`aask`)."""
+        return unkoil(self.aask, blok, message, args=args, returns=returns, prompt=prompt)
+
+    async def ainform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, Any] | None = None) -> None:
+        """Show a person a blok (a :class:`TaskBlok`, or BSX source) while the task goes on:
+        a chart of its progress, a result. Nothing waits; a blok the server cannot make is
+        logged, never raised."""
+        await self._helper.ainform(as_task_blok(blok, args=args), message)
+
+    def inform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, Any] | None = None) -> None:
+        """Show a person a blok while the task goes on (see :meth:`ainform`)."""
+        return unkoil(self.ainform, blok, message, args=args)
 
     # -- calling ---------------------------------------------------------- #
 

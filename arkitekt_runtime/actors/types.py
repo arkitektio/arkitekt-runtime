@@ -9,7 +9,7 @@ from typing import (
     Any,
 )
 from arkitekt_spec.declare.agents.types import BoundApp
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
 from arkitekt_runtime import messages
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.actors.policy import DisconnectPolicy
@@ -233,9 +233,19 @@ class Actor(Protocol):
         ...
 
     async def ahold(
-        self, task_id: str, message: str, details: dict[str, Any] | None = None, prompt: "AssignPrompt | None" = None
+        self,
+        task_id: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+        prompt: "AssignPrompt | None" = None,
+        blok: "TaskBlok | None" = None,
     ) -> "Decision":
-        """Hold ``task_id`` until a person decides (or auto-mode does), and return the decision."""
+        """Hold ``task_id`` until a person decides (or auto-mode does), or answers through
+        ``blok``, and return the decision."""
+        ...
+
+    async def ainform(self, task_id: str, blok: "TaskBlok", message: str | None = None) -> None:
+        """Show a person ``blok`` while ``task_id`` goes on."""
         ...
 
     async def abreak(self, task_id: str) -> bool:

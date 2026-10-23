@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model
 from enum import Enum
 from pydantic import Field
 import uuid
-from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
+from arkitekt_spec.declare.task import AssignPrompt, StateRequirement, TaskBlok
 
 
 JSONSerializable = (
@@ -67,6 +67,8 @@ class ToAgentMessageType(str, Enum):
     INTERRUPT = "INTERRUPT"
     # The answer to a task's own hold (HELD).
     DECIDE = "DECIDE"
+    # The blok a HELD or an INFORM carried could not be made: nothing of it was kept.
+    BLOK_REFUSED = "BLOK_REFUSED"
     PROVIDE = "PROVIDE"
     UNPROVIDE = "UNPROVIDE"
     INIT = "INIT"
@@ -123,6 +125,8 @@ class FromAgentMessageType(str, Enum):
     PAUSED = "PAUSED"
     # The task waits for a person's decision (task.hold); answered by DECIDE.
     HELD = "HELD"
+    # The task shows a person a blok while it goes on (task.inform).
+    INFORM = "INFORM"
     CRITICAL = "CRITICAL"
     RESUMED = "RESUMED"
     CANCELLED = "CANCELLED"
@@ -362,6 +366,17 @@ class Decide(Message):
     approved: bool
     answer: str | None = None
     auto: bool = False
+    values: dict[str, Any] | None = None
+    """The answer through the hold's blok (``task.ask``), checked against its returns."""
+
+
+class BlokRefused(Message):
+    """The blok a ``Held`` or an ``Inform`` carried could not be made, and why: nothing of
+    the frame was kept (the task is not held, nothing is shown)."""
+
+    type: Literal[ToAgentMessageType.BLOK_REFUSED] = ToAgentMessageType.BLOK_REFUSED
+    task: str
+    reason: str
 
 
 class Cancel(Message):
@@ -451,6 +466,17 @@ class Held(FromAgentEvent):
     prompt: AssignPrompt | None = None
     details: dict[str, Any] | None = None
     """What a person deciding may want to know (``task.hold(lost=...)``: the lost step)."""
+    blok: TaskBlok | None = None
+    """Ask through a blok (``task.ask``): the person answers in it, and ``Decide`` carries its values."""
+
+
+class Inform(FromAgentEvent):
+    """The task shows a person a blok while it goes on (``task.inform``)."""
+
+    type: Literal[FromAgentMessageType.INFORM] = FromAgentMessageType.INFORM
+    task: str
+    message: str | None = None
+    blok: TaskBlok
 
 
 class Resumed(FromAgentEvent):
@@ -1378,6 +1404,7 @@ ToAgentMessage = Union[
     Pause,
     Resume,
     Decide,
+    BlokRefused,
     Collect,
     Shelved,
     Unshelved,
@@ -1406,6 +1433,7 @@ FromAgentMessage = (
     | Resumed
     | Paused
     | Held
+    | Inform
     | Cancelled
     | Interrupted
     | StatePatch
