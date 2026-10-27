@@ -221,8 +221,13 @@ class AssignmentHelper(BaseModel):
         return self.assignment.task
 
     @property
+    def assigner(self) -> str:
+        """Returns the human at the root of the task tree, who assigned it"""
+        return self.assignment.assigner or self.assignment.user
+
+    @property
     def org(self) -> str:
-        """Returns the organization that caused the task"""
+        """Returns the organization the task runs in (`<iss>#<org>`)"""
         return self.assignment.org
 
     @property

@@ -14,7 +14,7 @@ the caller stream carries the ``…Event`` suffix (``Pause`` cmd vs ``Paused`` r
 """
 
 from typing import Any, Literal, Union, get_args
-from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
+from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, field_serializer, model_serializer
 from enum import Enum
 from pydantic import Field
 import uuid
@@ -273,8 +273,12 @@ class Assign(Message):
         description="The arguments that was sendend"
     )
     message: str | None = None
-    user: str = Field(..., description="The assinging user")
-    org: str = Field(description="The org that the user currently belongs to")
+    user: str = Field(..., description="Who caused this hop: the human for a top-level task, the delegating agent's user for a child")
+    assigner: str | None = Field(
+        default=None,
+        description="The human at the root of the task tree, who assigned it (the provenance `rcb`): the same for every task it delegated to. None from a server that does not send it.",
+    )
+    org: str = Field(description="The organization the task runs in, `<iss>#<org>`: unique across issuers")
     action: str = Field(description="The action of this task")
     implementation: str = Field(
         description="The implementation of this task (the id of the implementation)"
@@ -456,6 +460,24 @@ class Paused(FromAgentEvent):
     """What a person deciding may want to know (``task.hold(lost=...)``: the lost step)."""
 
 
+def _task_blok_on_the_wire(blok: TaskBlok | None, handler: SerializerFunctionWrapHandler) -> object:
+    """``blok`` as the server reads it: a local whose kind was left out goes without one.
+
+    The spec's local fills a left-out kind with ANY, but the server infers only a kind that is
+    absent (a given ANY is kept), so the default must not reach the wire.
+    """
+    dumped: object = handler(blok)
+    if blok is None or not blok.locals or not isinstance(dumped, dict):
+        return dumped
+    wire_locals: object = dumped.get("locals")  # pyright: ignore[reportUnknownMemberType]
+    if not isinstance(wire_locals, list):
+        return dumped
+    for local, wire in zip(blok.locals, wire_locals):  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+        if "kind" not in local.model_fields_set and isinstance(wire, dict):
+            _ = wire.pop("kind", None)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    return dumped
+
+
 class Held(FromAgentEvent):
     """The task waits for a person's decision (``task.hold``); the server answers with
     ``Decide``. Unlike ``Paused``, the answer comes back to the task."""
@@ -469,6 +491,10 @@ class Held(FromAgentEvent):
     blok: TaskBlok | None = None
     """Ask through a blok (``task.ask``): the person answers in it, and ``Decide`` carries its values."""
 
+    @field_serializer("blok", mode="wrap")
+    def _blok(self, blok: TaskBlok | None, handler: SerializerFunctionWrapHandler) -> object:
+        return _task_blok_on_the_wire(blok, handler)
+
 
 class Inform(FromAgentEvent):
     """The task shows a person a blok while it goes on (``task.inform``)."""
@@ -477,6 +503,10 @@ class Inform(FromAgentEvent):
     task: str
     message: str | None = None
     blok: TaskBlok
+
+    @field_serializer("blok", mode="wrap")
+    def _blok(self, blok: TaskBlok, handler: SerializerFunctionWrapHandler) -> object:
+        return _task_blok_on_the_wire(blok, handler)
 
 
 class Resumed(FromAgentEvent):

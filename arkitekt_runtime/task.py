@@ -31,7 +31,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from koil import check_cancelled, unkoil, unkoil_gen
 
-from arkitekt_spec.actions import Execution
+from pydantic import JsonValue
+
+from arkitekt_spec.actions import Execution, ReturnPortInput
 from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError, StateChanged
 from arkitekt_spec.declare.task import StateRef, aretry, retry
@@ -102,8 +104,17 @@ class Task:
         return self._helper.user
 
     @property
+    def assigner(self) -> str:
+        """The user who assigned the task: the human at the root of its tree.
+
+        The same for every task it delegated to, however deep, where :attr:`user` is
+        whoever caused this hop. Who a task works *for*.
+        """
+        return self._helper.assigner
+
+    @property
     def org(self) -> str:
-        """The organization the task runs in."""
+        """The organization the task runs in, ``"<iss>#<org>"``."""
         return self._helper.org
 
     @property
@@ -305,8 +316,8 @@ class Task:
         blok: "TaskBlok | str",
         message: str,
         *,
-        args: dict[str, Any] | None = None,
-        returns: list[dict[str, Any]] | None = None,
+        args: dict[str, JsonValue] | None = None,
+        returns: list[ReturnPortInput] | None = None,
         prompt: "AssignPrompt | None" = None,
     ) -> Decision:
         """Ask a person through a blok: the task is HELD on ``blok`` (a :class:`TaskBlok`,
@@ -332,20 +343,20 @@ class Task:
         blok: "TaskBlok | str",
         message: str,
         *,
-        args: dict[str, Any] | None = None,
-        returns: list[dict[str, Any]] | None = None,
+        args: dict[str, JsonValue] | None = None,
+        returns: list[ReturnPortInput] | None = None,
         prompt: "AssignPrompt | None" = None,
     ) -> Decision:
         """Ask a person through a blok (see :meth:`aask`)."""
         return unkoil(self.aask, blok, message, args=args, returns=returns, prompt=prompt)
 
-    async def ainform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, Any] | None = None) -> None:
+    async def ainform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, JsonValue] | None = None) -> None:
         """Show a person a blok (a :class:`TaskBlok`, or BSX source) while the task goes on:
         a chart of its progress, a result. Nothing waits; a blok the server cannot make is
         logged, never raised."""
         await self._helper.ainform(as_task_blok(blok, args=args), message)
 
-    def inform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, Any] | None = None) -> None:
+    def inform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, JsonValue] | None = None) -> None:
         """Show a person a blok while the task goes on (see :meth:`ainform`)."""
         return unkoil(self.ainform, blok, message, args=args)
 

@@ -3,23 +3,34 @@ shows it while the task goes on, and a blok the server cannot make is raised at 
 """
 
 import asyncio
+import json
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
+from arkitekt_spec.actions import (
+    BlokDemoInput,
+    BlokLocalInput,
+    BlokQueryInput,
+    BlokSubscriptionInput,
+    PortKind,
+    ReturnPortInput,
+)
 from arkitekt_spec.declare.errors import BlokRefused
 from arkitekt_spec.declare.task import Task, TaskBlok
 
 from .test_workflow_replay import _agent, _assign, _drive, _returned
 
-PICKER = """<Column>
-  <foreach items="@args.images" let="#img">
-    <Button label="Pick" onClick="@utils.blok.answer(values={'image': img})" />
-  </foreach>
-</Column>"""
+PICKER = """<Html>
+  <Card>
+    <foreach items={args.images} let="img" key={img.object}>
+      <Button onClick={task.answer(values: {image: img})}>Pick</Button>
+    </foreach>
+  </Card>
+</Html>"""
 
 IMAGES = [{"__identifier": "@mikro/image", "object": "7"}, {"__identifier": "@mikro/image", "object": "8"}]
-IMAGE = [{"key": "image", "kind": "STRUCTURE", "identifier": "@mikro/image", "nullable": False}]
+IMAGE = [ReturnPortInput(key="image", kind=PortKind.STRUCTURE, identifier="@mikro/image", nullable=False)]
 
 
 def picks(task: Task) -> str:
@@ -81,3 +92,48 @@ async def test_an_inform_shows_its_blok_and_the_task_goes_on() -> None:
     _, inform = await _until(agent, transport, "shows", messages.Inform)
     assert (inform.message, inform.blok) == ("Halfway", TaskBlok(key="progress_panel", args={"done": 5}))
     assert await _returned(transport) == "went on"
+
+
+def test_a_task_blok_travels_under_its_own_names() -> None:
+    """The blok goes on the wire as the spec names its fields (``catalogs``, ``module``,
+    ``locals``, ``demo``, ``queries``, ``subscriptions``) and comes back the same."""
+    blok = TaskBlok(
+        source=PICKER,
+        vocab=2,
+        catalogs=["ui@1"],
+        module="orkestrator",
+        demo=BlokDemoInput(args={"images": IMAGES}),
+        locals=[BlokLocalInput(key="note", kind=PortKind.STRING, default="", persist=True)],
+        queries=[BlokQueryInput(key="positions", service="mikro", document="query Positions { positions { id } }", more="positions")],
+        subscriptions=[BlokSubscriptionInput(key="live", service="mikro", document="subscription Live { live { id } }", keep=3, history="positions")],
+    )
+    inform = messages.Inform(task="42", message="Pick one", blok=blok)
+
+    wire = inform.model_dump(mode="json")["blok"]
+
+    assert (wire["vocab"], wire["catalogs"], wire["module"]) == (2, ["ui@1"], "orkestrator")
+    assert wire["demo"]["args"] == {"images": IMAGES}
+    assert "catalog" not in wire and "demo_state" not in wire
+    assert [(local["key"], local["kind"], local["persist"]) for local in wire["locals"]] == [("note", "STRING", True)]
+    assert wire["queries"][0]["more"] == "positions"
+    assert (wire["subscriptions"][0]["keep"], wire["subscriptions"][0]["history"]) == (3, "positions")
+    assert messages.Inform.model_validate(inform.model_dump(mode="json")).blok == blok
+    held = messages.Held(task="42", blok=blok).model_dump(mode="json")["blok"]
+    assert held["module"] == "orkestrator"
+    assert messages.Held.model_validate(messages.Held(task="42", blok=blok).model_dump(mode="json")).blok == blok
+
+
+def test_a_local_without_kind_goes_without_one() -> None:
+    """The server infers a left-out kind and keeps a given one, ANY included: the spec's ANY
+    default must not reach the wire, while a kind given stays."""
+    blok = TaskBlok(
+        source="<Html><Card><Input bind={note} /><Switch bind={on} /></Card></Html>",
+        vocab=2,
+        locals=[BlokLocalInput(key="note"), BlokLocalInput(key="on", kind="ANY")],
+    )
+
+    for message in (messages.Inform(task="42", blok=blok), messages.Held(task="42", blok=blok)):
+        wire = json.loads(message.model_dump_json())["blok"]
+        assert wire["locals"][0]["key"] == "note" and "kind" not in wire["locals"][0]
+        assert wire["locals"][1]["kind"] == "ANY"
+    assert messages.Inform.model_validate(messages.Inform(task="42", blok=blok).model_dump(mode="json")).blok == blok
