@@ -72,6 +72,9 @@ def reactify(
         "concurrency": config.concurrency,
         "policy": config.policy,
         "execution": config.execution,
+        "dynamic_asks": config.dynamic_asks,
+        "dynamic_calls": config.dynamic_calls,
+        "dynamic_informs": config.dynamic_informs,
     }
 
     if is_coroutine:

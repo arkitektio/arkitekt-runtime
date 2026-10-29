@@ -175,6 +175,21 @@ class AssignmentHelper(BaseModel):
         """How this task's implementation runs; only a workflow may call other actions."""
         return getattr(self.actor, "execution", Execution.PLAIN)
 
+    @property
+    def dynamic_asks(self) -> bool:
+        """Whether this task's implementation may ask through a blok made at ask time."""
+        return bool(getattr(self.actor, "dynamic_asks", False))
+
+    @property
+    def dynamic_calls(self) -> bool:
+        """Whether this task's implementation may call actions it found at run time."""
+        return bool(getattr(self.actor, "dynamic_calls", False))
+
+    @property
+    def dynamic_informs(self) -> bool:
+        """Whether this task's implementation may show a blok made at inform time."""
+        return bool(getattr(self.actor, "dynamic_informs", False))
+
     async def abreakpoint(self) -> bool:
         """Check if the actor needs to break"""
         return await self.actor.abreak(self.assignment.task)

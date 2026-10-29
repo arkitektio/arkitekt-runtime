@@ -109,8 +109,9 @@ async def test_calling_another_action_without_a_caller_fails_at_once() -> None:
         async for _ in agent.caller_postman.aassign(args={}):
             pass
 
-    # A workflow, since only a workflow may call; the runtime then has no caller.
-    agent.app_registry.register_workflow(calls_another)
+    # A workflow declaring dynamic calls, since only one may call what it found at run time;
+    # the runtime then has no caller.
+    agent.app_registry.register_workflow(calls_another, dynamic_calls=True)
     agent.collect_from_registry()
     transport: MemoryAgentTransport = agent.transport  # type: ignore[assignment]
     with contextlib.suppress(Exception):

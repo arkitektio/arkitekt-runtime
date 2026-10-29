@@ -117,8 +117,9 @@ class _Helper:
         self.assignment = messages.Assign.model_construct(task="task-1")
         self.structure_registry = object()
         self.task = "task-1"
-        # Calls are what only a workflow makes.
+        # Calls are what only a workflow makes, and one naming its target declares dynamic calls.
         self.execution = Execution.WORKFLOW
+        self.dynamic_calls = True
 
 
 def _task(postman: RecordingPostman) -> Task:

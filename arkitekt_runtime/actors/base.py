@@ -16,6 +16,7 @@ import uuid
 from functools import partial
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from arkitekt_runtime.actors.interactions import InteractionsProxy
 from arkitekt_runtime.actors.dependency import AgentDependencyProxy
 from arkitekt_runtime.actors.errors import UnknownMessageError
 from arkitekt_spec.declare.actors.policy import KEEP, DisconnectPolicy
@@ -24,6 +25,7 @@ from arkitekt_spec.declare.agents.errors import StateRequirementsNotMet
 from arkitekt_spec.declare.descriptors import unmet_state
 from arkitekt_spec.declare.errors import STATE_PRECONDITION
 from arkitekt_spec.declare.actors.types import (
+    PreparedInteractionVariables,
     PreparedInjectedVariables,
     PreparedDependencyVariables,
 )
@@ -82,6 +84,18 @@ class Actor(BaseModel):
     execution: Execution = Field(
         default=Execution.PLAIN,
         description="How the implementation runs: only a WORKFLOW may call other actions.",
+    )
+    dynamic_asks: bool = Field(
+        default=False,
+        description="Whether a task may ask through a blok made at ask time, not only through its declared asks.",
+    )
+    dynamic_calls: bool = Field(
+        default=False,
+        description="Whether a task may call actions it found at run time, not only its dependencies.",
+    )
+    dynamic_informs: bool = Field(
+        default=False,
+        description="Whether a task may show a blok made at inform time, not only the app's own bloks.",
     )
 
     _running_asyncio_tasks: dict[str, asyncio.Task[None]] = PrivateAttr(
@@ -624,6 +638,10 @@ class SerializingActor(Actor):
     dependency_variables: PreparedDependencyVariables = Field(
         description="The dependency variables of the actor"
     )
+    interaction_variables: PreparedInteractionVariables = Field(
+        default_factory=PreparedInteractionVariables,
+        description="The parameters annotated with an interactions protocol, each handed a proxy that asks or shows",
+    )
     context_variables: PreparedContextVariables = Field(
         description="The context variables of the actor"
     )
@@ -692,16 +710,17 @@ class SerializingActor(Actor):
 
     async def aget_dependency_locals(
         self: Self, task: Task
-    ) -> Mapping[str, AgentDependencyProxy]:
+    ) -> Mapping[str, AgentDependencyProxy | InteractionsProxy]:
         """A proxy for every parameter annotated with a declared protocol, made
         for ``task``: its calls are children of that task and leave over this
-        actor's agent.
+        actor's agent. A parameter annotated with an interactions protocol gets one
+        whose asks hold that task and whose informs show beside it.
 
         Raises:
             StateRequirementsNotMet: If a parameter's protocol is not declared on
                 this actor's structure registry.
         """
-        proxies: dict[str, AgentDependencyProxy] = {}
+        proxies: dict[str, AgentDependencyProxy | InteractionsProxy] = {}
         for key, cls in self.dependency_variables.dependency_variables.items():
             try:
                 protocol = dependency_to_protocol(cls, self.structure_registry)
@@ -714,6 +733,12 @@ class SerializingActor(Actor):
                 agent=self.agent,
                 structure_registry=self.structure_registry,
             )
+        for key, cls in self.interaction_variables.interaction_variables.items():
+            try:
+                interactions = self.structure_registry.interactions_for(cls)
+            except KeyError as e:
+                raise StateRequirementsNotMet(f"State requirements not met: {e}") from e
+            proxies[key] = InteractionsProxy(key, interactions, task=task, structure_registry=self.structure_registry)
         return proxies
 
     async def aget_injected_locals(

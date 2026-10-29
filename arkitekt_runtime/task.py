@@ -35,7 +35,7 @@ from pydantic import JsonValue
 
 from arkitekt_spec.actions import Execution, ReturnPortInput
 from arkitekt_spec.declare.agents.errors import NoCallerError
-from arkitekt_spec.declare.errors import AgentLost, NotAWorkflowError, StateChanged
+from arkitekt_spec.declare.errors import AgentLost, DismissedError, NotAWorkflowError, NotDeclaredError, StateChanged
 from arkitekt_spec.declare.task import StateRef, aretry, retry
 from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel, TaskBlok, as_task_blok
 from arkitekt_spec.declare.task import Task as TaskProtocol
@@ -268,7 +268,7 @@ class Task:
                 f"task.guard takes the state attribute of a dependency (task.guard(handler.plate)), "
                 f"not {type(state).__name__}."
             )
-        postman, _, assignment = self._caller()
+        postman, _, assignment = self._caller(calling=False)
         ask = getattr(postman, "astate_revision", None)
         if ask is None:
             raise NoCallerError(f"Task {self.id!r} runs where nothing can answer a guard.")
@@ -311,58 +311,98 @@ class Task:
         """Wait for a person to decide (see :meth:`ahold`)."""
         return unkoil(self.ahold, message, prompt=prompt, lost=lost)
 
-    async def aask(
-        self,
-        blok: "TaskBlok | str",
-        message: str,
-        *,
-        args: dict[str, JsonValue] | None = None,
-        returns: list[ReturnPortInput] | None = None,
-        prompt: "AssignPrompt | None" = None,
-    ) -> Decision:
-        """Ask a person through a blok: the task is HELD on ``blok`` (a :class:`TaskBlok`,
-        or BSX source) until they answer in it or dismiss it.
-
-        Answered, the decision is approved and its ``values`` are what the blok answered
-        (``@utils.blok.answer(values={...})``), checked by the server against its ``returns``.
-        Dismissed, it is not approved and has none. Auto-mode cannot answer for a person,
-        so an ask waits in every run. Raises :class:`BlokRefused` when the server cannot
-        make the blok, with why: fix it and ask again. A resumed workflow gets the answer it
-        already had back, without asking again.
-        """
-        task_blok = as_task_blok(blok, args=args, returns=returns)
+    async def _aask_declared(self, blok: TaskBlok, message: str) -> dict[str, Any]:
+        """Hold on ``blok`` and return what was answered: an interactions protocol's proxy
+        asks through here, ``blok`` naming its declared ask by key."""
         found, recorded, key = await self._helper.areplay(EffectKind.HOLD)
         if found:
-            return Decision.model_validate(recorded)
-        decision = await self._helper.ahold(message, None, prompt, task_blok)
-        await self._helper.aeffect(EffectKind.HOLD, _recorded(decision), key=key)
-        return decision
+            decision = Decision.model_validate(recorded)
+        else:
+            decision = await self._helper.ahold(message, None, None, blok)
+            await self._helper.aeffect(EffectKind.HOLD, _recorded(decision), key=key)
+        if not decision.approved:
+            raise DismissedError(decision.answer, task=self.id)
+        return dict(decision.values or {})
 
-    def ask(
+    async def adynamic_ask(
         self,
         blok: "TaskBlok | str",
-        message: str,
         *,
         args: dict[str, JsonValue] | None = None,
         returns: list[ReturnPortInput] | None = None,
-        prompt: "AssignPrompt | None" = None,
-    ) -> Decision:
-        """Ask a person through a blok (see :meth:`aask`)."""
-        return unkoil(self.aask, blok, message, args=args, returns=returns, prompt=prompt)
+    ) -> dict[str, Any]:
+        """Ask a person through a blok made now: the task is HELD on ``blok`` (a
+        :class:`TaskBlok`, or BSX source) until they answer in it.
 
-    async def ainform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, JsonValue] | None = None) -> None:
-        """Show a person a blok (a :class:`TaskBlok`, or BSX source) while the task goes on:
-        a chart of its progress, a result. Nothing waits; a blok the server cannot make is
-        logged, never raised."""
-        await self._helper.ainform(as_task_blok(blok, args=args), message)
+        Only an action declaring ``dynamic_asks`` may: one asking what it knows up front
+        declares an interactions protocol instead (``@app.interactions``), typed. The blok is the prompt;
+        its ``name`` is what the ask is listed as. Returns what the blok answered
+        (``task.answer(values: {...})``), checked by the server against its ``returns``;
+        a structure comes as ``{"__identifier", "object"}``. Raises :class:`DismissedError`
+        when it is dismissed, and :class:`BlokRefused` when the server cannot make the blok
+        or refuses the ask. A resumed workflow gets the answer it already had back.
 
-    def inform(self, blok: "TaskBlok | str", message: str | None = None, *, args: dict[str, JsonValue] | None = None) -> None:
-        """Show a person a blok while the task goes on (see :meth:`ainform`)."""
-        return unkoil(self.ainform, blok, message, args=args)
+        Raises:
+            NotDeclaredError: If the action does not declare ``dynamic_asks``.
+        """
+        if not self._helper.dynamic_asks:
+            raise NotDeclaredError(
+                f"Task {self.id!r} asked through a blok made at ask time, which only an action "
+                "declaring dynamic_asks=True may: declare it with @ask on an interactions "
+                "protocol (@app.interactions) instead, or set dynamic_asks."
+            )
+        task_blok = as_task_blok(blok, args=args, returns=returns)
+        return await self._aask_declared(task_blok, task_blok.name or "")
+
+    def dynamic_ask(
+        self,
+        blok: "TaskBlok | str",
+        *,
+        args: dict[str, JsonValue] | None = None,
+        returns: list[ReturnPortInput] | None = None,
+    ) -> dict[str, Any]:
+        """Ask a person through a blok made now (see :meth:`adynamic_ask`)."""
+        return unkoil(self.adynamic_ask, blok, args=args, returns=returns)
+
+    async def _ainform_declared(self, blok: TaskBlok, message: str) -> None:
+        """Show ``blok`` while the task goes on: an interactions protocol's proxy informs
+        through here, ``blok`` naming its declared inform by key."""
+        await self._helper.ainform(blok, message)
+
+    async def adynamic_inform(self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None) -> None:
+        """Show a person a blok made now (a :class:`TaskBlok`, or BSX source) while the task
+        goes on: a chart of its progress, a result. Nothing waits; a blok the server cannot
+        make is logged, never raised.
+
+        Only an action declaring ``dynamic_informs`` may: one showing what it knows up front
+        declares it with ``@inform`` on an interactions protocol instead
+        (``@app.interactions``), typed. The blok's ``name`` is what the inform is listed as.
+
+        Raises:
+            NotDeclaredError: If the action does not declare ``dynamic_informs``.
+            ValueError: If ``blok`` names a declared inform by key, which only its proxy shows.
+        """
+        if not self._helper.dynamic_informs:
+            raise NotDeclaredError(
+                f"Task {self.id!r} showed a blok made at inform time, which only an action "
+                "declaring dynamic_informs=True may: declare it with @inform on an interactions "
+                "protocol (@app.interactions) instead, or set dynamic_informs."
+            )
+        task_blok = as_task_blok(blok, args=args)
+        if task_blok.key is not None:
+            raise ValueError(
+                f"Task {self.id!r} showed the declared inform {task_blok.key!r} by key: call it on "
+                "the interactions protocol the action is handed instead."
+            )
+        await self._helper.ainform(task_blok, task_blok.name)
+
+    def dynamic_inform(self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None) -> None:
+        """Show a person a blok made now while the task goes on (see :meth:`adynamic_inform`)."""
+        return unkoil(self.adynamic_inform, blok, args=args)
 
     # -- calling ---------------------------------------------------------- #
 
-    def _caller(self) -> "tuple[Postman, StructureRegistry, Assign]":
+    def _caller(self, calling: bool = True) -> "tuple[Postman, StructureRegistry, Assign]":
         """The socket, the registry and the parent for a call made as this task's child.
 
         Read off the assignment rather than looked up: the postman is the agent's
@@ -371,12 +411,23 @@ class Task:
         :meth:`rekuest.actors.dependency.AgentMethodProxy._call_kwargs`, whose docstring
         puts it best -- nothing is looked up from context.
 
+        ``calling`` is False for what reads through the socket without calling (a guard):
+        only a call made to an action found at run time needs ``dynamic_calls``.
+
         Raises:
+            NotDeclaredError: If it is a call and the workflow does not declare
+                ``dynamic_calls``.
             NoCallerError: If no agent runs this task: a child call needs a socket to
                 leave over and an assignment to hang off.
         """
         agent = self._helper.agent
         assignment = self._helper.assignment
+        if calling and self._helper.execution == Execution.WORKFLOW and not self._helper.dynamic_calls:
+            raise NotDeclaredError(
+                f"Task {self.id!r} called an action it found at run time, which only a workflow "
+                "declaring dynamic_calls=True may: call it through a dependency (a parameter "
+                "annotated with an @app.declare protocol) instead, or set dynamic_calls."
+            )
         if self._helper.execution != Execution.WORKFLOW:
             raise NotAWorkflowError(
                 f"Task {self.id!r} called another action, which only a workflow may do: "
