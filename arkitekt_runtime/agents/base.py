@@ -83,12 +83,16 @@ from arkitekt_runtime.state.observable import Mutation, adopt, evented
 from arkitekt_runtime.state.write import write_view
 from arkitekt_spec.declare.state.publish import Patch
 from arkitekt_runtime.state.readonly import read_only_view
+from arkitekt_runtime.state.expand import aexpand_state
 from arkitekt_runtime.state.shrink import ashrink_state
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.actor import ashrink_return
 from arkitekt_spec.declare.structures.types import JSONSerializable
 
 logger = logging.getLogger(__name__)
+
+#: How long expanding one persisted state may take (its structures may hit a server).
+PREVIOUS_STATE_TIMEOUT = 10.0
 
 # How many finished task ids an agent remembers, to recognise a redelivered Assign for work
 # that already ran. Redeliveries arrive within the backend's pickup deadline (~a minute), so
@@ -1707,6 +1711,49 @@ class BaseAgent(KoiledModel):
             return {"bound_app": self.bound_app}
         return {}
 
+    async def aload_previous_states(self) -> dict[str, Any]:
+        """What an earlier run persisted, shrunk, by state. Nothing in the core: a runtime
+        that keeps it (rekuest's socket agent) overrides this."""
+        return {}
+
+    async def _aprevious_state_kwargs(self, hook: Any) -> dict[str, Any]:  # noqa: ANN401
+        """``previous_states=`` for a hook that asks for an earlier run's state.
+
+        Expanded here, outside the hook's own time budget. A state that cannot be brought
+        back is ``None`` (a structure gone from its server, say): the hook handles ``None``
+        anyway, as a first run has no old state.
+        """
+        wanted = getattr(hook, "previous_state_variables", None)
+        if not wanted:
+            return {}
+        stored = await self.aload_previous_states()
+        previous: dict[str, Any] = {}
+        for interface in set(wanted.values()):
+            if interface in stored:
+                previous[interface] = await self._aexpand_previous_state(
+                    interface, stored[interface]
+                )
+        return {"previous_states": previous}
+
+    async def _aexpand_previous_state(self, interface: str, shrunk: Any) -> Any:  # noqa: ANN401
+        try:
+            return await asyncio.wait_for(
+                aexpand_state(
+                    self.app_registry.state_interface_classes[interface],
+                    shrunk,
+                    self._collected_state_schemas[interface],
+                    self.get_structure_registry_for_interface(interface),
+                ),
+                timeout=PREVIOUS_STATE_TIMEOUT,
+            )
+        except Exception:  # noqa: BLE001 — never a failed start
+            logger.warning(
+                "Could not restore the persisted state %s; starting without it",
+                interface,
+                exc_info=True,
+            )
+            return None
+
     async def arun_background(self) -> None:
         """Run the background tasks. This will be called when the agent starts."""
 
@@ -1776,9 +1823,12 @@ class BaseAgent(KoiledModel):
 
         for key, hook in self._collected_startup_hooks.items():
             try:
+                previous = await self._aprevious_state_kwargs(hook)
                 answer = await asyncio.wait_for(
                     hook.arun(
-                        app_context=app_context, **self._bound_app_kwargs(hook)
+                        app_context=app_context,
+                        **self._bound_app_kwargs(hook),
+                        **previous,
                     ),
                     timeout=20,
                 )

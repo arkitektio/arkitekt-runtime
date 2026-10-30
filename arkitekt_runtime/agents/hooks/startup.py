@@ -39,15 +39,19 @@ class WrappedStartupHook(StartupWithVariables):
         self,
         app_context: Any,  # noqa: ANN401
         bound_app: BoundApp | None = None,
+        previous_states: dict[str, Any] | None = None,
     ) -> StartupHookReturns:
         """Run the startup hook in the event loop
         Args:
             app_context (Any): The context for the startup hook
             bound_app (Any): The app the agent belongs to, if any
+            previous_states (dict): What earlier runs persisted of the states it asks for
         Returns:
             Optional[Dict[str, Any]]: The state variables and contexts
         """
-        parsed_returns = await self.func(**self.get_startup_kwargs(app_context, bound_app))
+        parsed_returns = await self.func(
+            **self.get_startup_kwargs(app_context, bound_app, previous_states)
+        )
 
         return _split_returns(self, ensure_return_as_tuple(parsed_returns))
 
@@ -95,18 +99,20 @@ class ThreadedStartupHook(StartupWithVariables):
         self,
         app_context: Any,  # noqa: ANN401
         bound_app: BoundApp | None = None,
+        previous_states: dict[str, Any] | None = None,
     ) -> StartupHookReturns:
         """Run the startup hook in the event loop
         Args:
             app_context (Any): The context for the startup hook
             bound_app (Any): The app the agent belongs to, if any
+            previous_states (dict): What earlier runs persisted of the states it asks for
         Returns:
             Optional[Dict[str, Any]]: The state variables and contexts
         """
 
         parsed_returns = await run_threaded(
             self.func,
-            **self.get_startup_kwargs(app_context, bound_app),  # type: ignore[arg-type]
+            **self.get_startup_kwargs(app_context, bound_app, previous_states),  # type: ignore[arg-type]
         )
 
         return _split_returns(self, ensure_return_as_tuple(parsed_returns))
