@@ -505,8 +505,10 @@ def _check_fits(
     for fit in fits:
         value = expanded.get(fit.port)
         port = next(port for port in definition.args if port.key == fit.port)
+        if value is None or port.identifier is None:
+            continue
         describe = structure_registry.get_fullfilled_structure(port.identifier).describe
-        if value is None or describe is None:
+        if describe is None:
             continue
         descriptors = describe(value)
         if fits_can_be_tested(fit.call, descriptors, hardware) and not fits_holds(fit.call, descriptors, hardware):
