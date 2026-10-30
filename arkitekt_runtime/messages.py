@@ -780,6 +780,21 @@ class AgentDeclaration(BaseModel):
     """The files the agent brings, by name. It uploads what the backend does not hold."""
 
 
+class AgentGpu(BaseModel):
+    """One GPU of an agent's machine."""
+
+    name: str
+    memory_mib: int | None = None
+
+
+class AgentHardware(BaseModel):
+    """What an agent's machine has, as a runtime formula reads it. Unknown stays ``None``."""
+
+    cpu_count: int | None = None
+    memory_mib: int | None = None
+    gpus: list[AgentGpu] = Field(default_factory=list)
+
+
 class Register(AgentDeclaration, Message):
     """A register message
 
@@ -804,6 +819,9 @@ class Register(AgentDeclaration, Message):
         default=None,
         description="The app that says it controls this agent's lifecycle (e.g. 'plugin_engine'): a self-declared hint, stored on the agent on every Register. Not part of the definition hash.",
     )
+    hardware: AgentHardware | None = None
+    """What the agent's machine has, written on every ``Register``: not part of the declaration
+    or its hash, so a hash-equal reconnect still says it, and moving machines declares nothing."""
     features: list[str] = Field(
         default_factory=list,
         description="What this agent implements beyond the base protocol. 'state_requires': it tests an Assign's state_requires; a server sends none to an agent that does not say so.",

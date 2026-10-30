@@ -33,7 +33,7 @@ from arkitekt_runtime.actors.types import Agent
 from arkitekt_spec.declare.errors import BlokRefused
 from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
 from arkitekt_runtime import messages
-from arkitekt_spec.actions import DefinitionInput, Execution
+from arkitekt_spec.actions import DefinitionInput, Execution, FitsInput
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
 from arkitekt_runtime.state.observable import Mutation
 from arkitekt_spec.declare.actors.types import (
@@ -656,6 +656,10 @@ class SerializingActor(Actor):
     structure_registry: StructureRegistry = Field(
         default_factory=StructureRegistry,
         description="The structure regsistry to use for this actor",
+    )
+    fits: tuple[FitsInput, ...] = Field(
+        default=(),
+        description="What this implementation can handle per argument, tested once they are expanded.",
     )
     expand_inputs: bool = Field(
         default=True,

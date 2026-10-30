@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator
 from pydantic import BaseModel, ConfigDict, Field
 
 from arkitekt_runtime.agents.policy import ConnectionPolicy
-from arkitekt_runtime.messages import AgentDeclaration, FromAgentMessage, ToAgentMessage
+from arkitekt_runtime.messages import AgentDeclaration, AgentHardware, FromAgentMessage, ToAgentMessage
 
 
 class HandshakeParams(BaseModel):
@@ -36,6 +36,9 @@ class HandshakeParams(BaseModel):
 
     ``None`` registers an agent that declares nothing (the backend only makes sure it
     exists). Asked per attempt like the rest, so a reconnect carries the current hash."""
+    hardware: AgentHardware | None = Field(default=None)
+    """What the agent's machine has. Outside the declaration and its hash: it is sent on
+    every connect, and moving to another machine declares nothing new."""
     force: bool | None = Field(default=None)
     """Kick any connection already registered for this agent and take over.
 

@@ -18,9 +18,11 @@ from collections.abc import Sequence
 from arkitekt_spec.scalars import coerce_id
 
 from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.agents.hardware import detect_hardware
 from arkitekt_spec.actions import (
     ArgPortInput,
     DefinitionInput,
+    FitsInput,
     PortKind,
     ReturnPortInput,
 )
@@ -33,7 +35,7 @@ from arkitekt_spec.declare.structures.errors import (
     StructureExpandingError,
 )
 from arkitekt_spec.declare.structures.quantities import expand_quantity, shrink_quantity
-from arkitekt_spec.declare.descriptors import unfulfilled
+from arkitekt_spec.declare.descriptors import fits_can_be_tested, fits_holds, unfulfilled
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_spec.declare.structures.types import FullFilledStructure
 from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
@@ -449,6 +451,7 @@ async def expand_inputs(
     structure_registry: StructureRegistry,
     shelver: Shelver,
     skip_expanding: bool = False,
+    fits: Sequence[FitsInput] = (),
 ) -> dict[str, Any]:
     """Expand an incoming ``args`` dict against ``definition.args``.
 
@@ -482,7 +485,32 @@ async def expand_inputs(
     except Exception as e:
         raise ExpandingError(f"Couldn't expand Arguments: {e}") from e
 
-    return {port.key: val for port, val in zip(definition.args, expanded_args)}
+    expanded = {port.key: val for port, val in zip(definition.args, expanded_args)}
+    _check_fits(definition, expanded, structure_registry, fits)
+    return expanded
+
+
+def _check_fits(
+    definition: DefinitionInput,
+    expanded: dict[str, Any],
+    structure_registry: StructureRegistry,
+    fits: Sequence[FitsInput],
+) -> None:
+    """Refuse an object this agent cannot handle: the menu's filter does not cover every way here.
+
+    Like a port's ``requires``, only what is known here is tested: an object its structure
+    cannot describe, or a formula reading something this agent could not tell.
+    """
+    hardware = detect_hardware().model_dump() if fits else {}
+    for fit in fits:
+        value = expanded.get(fit.port)
+        port = next(port for port in definition.args if port.key == fit.port)
+        describe = structure_registry.get_fullfilled_structure(port.identifier).describe
+        if value is None or describe is None:
+            continue
+        descriptors = describe(value)
+        if fits_can_be_tested(fit.call, descriptors, hardware) and not fits_holds(fit.call, descriptors, hardware):
+            raise ExpandingError(f"This {port.identifier} does not fit this agent: {fit.source}")
 
 
 # --------------------------------------------------------------------------- #

@@ -31,6 +31,7 @@ from pydantic import ConfigDict, Field, PrivateAttr
 from arkitekt_spec.declare.agents.types import BoundApp
 from koil.composition import KoiledModel
 from arkitekt_runtime.actors.build import actor_builder_for
+from arkitekt_runtime.agents.hardware import detect_hardware
 from arkitekt_runtime.agents.hooks.materialize import materialize_hook
 from arkitekt_runtime import messages
 from arkitekt_runtime.actors.types import Actor
@@ -1991,6 +1992,7 @@ class BaseAgent(KoiledModel):
             declaration=declaration,
             supervisor=self.supervisor,
             features=[messages.FEATURE_STATE_REQUIRES],
+            hardware=await asyncio.to_thread(detect_hardware),
         )
 
     async def _aconnect_sequence(self, context: AppContext | None = None) -> None:

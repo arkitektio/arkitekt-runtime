@@ -8,6 +8,8 @@ taken on the producer's word.
 from collections.abc import AsyncIterator
 from typing import Annotated
 
+from types import SimpleNamespace
+
 import pytest
 
 from arkitekt_runtime.agents.base import BaseAgent
@@ -115,3 +117,23 @@ async def test_each_item_of_a_list_is_tested(agent: BaseAgent) -> None:
 
 async def test_a_port_without_constraints_carries_anything(agent: BaseAgent) -> None:
     assert (await acall_local(agent, "passthrough", Picture("9"))).channels == 9
+
+
+def test_an_object_that_does_not_fit_the_agent_is_refused(monkeypatch) -> None:
+    from arkitekt_runtime.structures.serialization import actor
+    from arkitekt_spec.actions import FitsInput
+    from arkitekt_spec.declare.blok.parser import parse_fits
+
+    fstruct = SimpleNamespace(describe=lambda value: {"@mikro/size": value})
+    registry = SimpleNamespace(get_fullfilled_structure=lambda identifier: fstruct)
+    definition = SimpleNamespace(args=[SimpleNamespace(key="image", identifier="@mikro/arraylens")])
+    fit = FitsInput(port="image", call=parse_fits("@mikro/size < agent.memory_mib"), source="the formula")
+    monkeypatch.setattr(actor, "detect_hardware", lambda: SimpleNamespace(model_dump=lambda: {"memory_mib": 10}))
+
+    actor._check_fits(definition, {"image": 5}, registry, [fit])
+    with pytest.raises(actor.ExpandingError, match="does not fit this agent: the formula"):
+        actor._check_fits(definition, {"image": 50}, registry, [fit])
+
+    # What this agent cannot tell is not tested.
+    fstruct.describe = lambda value: {}
+    actor._check_fits(definition, {"image": 50}, registry, [fit])

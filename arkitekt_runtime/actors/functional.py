@@ -89,6 +89,7 @@ class FunctionalActor(SerializingActor):
                     structure_registry=self.structure_registry,
                     shelver=self.agent,
                     skip_expanding=not self.expand_inputs,
+                    fits=self.fits,
                 )
             except Exception as ex:
                 logger.critical(
