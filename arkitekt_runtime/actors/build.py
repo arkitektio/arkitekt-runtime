@@ -10,10 +10,9 @@ bound -- with the declared actifier, or :func:`~rekuest.actors.actify.reactify`.
 from typing import TYPE_CHECKING
 
 from arkitekt_runtime.actors.actify import reactify
-from arkitekt_runtime.actors.types import ActorBuilder
+from arkitekt_runtime.actors.types import Actor, ActorBuilder
 
 if TYPE_CHECKING:
-    from arkitekt_runtime.actors.base import Actor
     from arkitekt_runtime.actors.types import Agent
     from arkitekt_spec.declare.actors.types import RegisterConfig
     from arkitekt_spec.declare.app import AppRegistry

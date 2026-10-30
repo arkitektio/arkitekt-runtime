@@ -13,7 +13,8 @@ a call's returns are; a dismissal raises
 :class:`~arkitekt_spec.declare.errors.DismissedError`. An inform shows the blok and returns.
 """
 
-from typing import Any, NamedTuple, get_type_hints
+from collections.abc import Callable
+from typing import Any, get_type_hints
 
 from koil import unkoil
 
@@ -41,7 +42,7 @@ class AskProxy:
         self.task = task
         self.structure_registry = structure_registry
         returns = get_type_hints(ask.method.func).get("return")
-        self._named: type[NamedTuple] | None = returns if returns is not None and is_named_tuple(returns) else None
+        self._named: Callable[..., Any] | None = returns if returns is not None and is_named_tuple(returns) else None
 
     async def aask(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 -- the ask's own arguments and answer
         """Ask and await the answer, expanded as the method's return declares it."""

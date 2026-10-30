@@ -200,6 +200,12 @@ class Actor(Protocol):
     policy: DisconnectPolicy
     execution: Execution
     """What happens to this actor's work when the agent loses its control channel."""
+    dynamic_asks: bool
+    """Whether its tasks may ask through bloks made at run time."""
+    dynamic_calls: bool
+    """Whether its tasks may call actions they find at run time."""
+    dynamic_informs: bool
+    """Whether its tasks may show bloks made at run time."""
 
     def has_running_tasks(self) -> bool:
         """Whether this actor currently has any assignment in flight."""
