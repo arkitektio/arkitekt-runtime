@@ -318,6 +318,8 @@ class BaseAgent(KoiledModel):
         default_factory=lambda: {}
     )
     _ran_startup_hooks: bool = PrivateAttr(default=False)
+    _entered_lifecycles: list[Any] = PrivateAttr(default_factory=list)
+    """The lifecycle hooks started in this run, in order: what follows their yield is owed."""
     # A stopped run reaches teardown from several places (the loop, leaving the
     # agent); it runs once per connect.
     _torn_down: bool = PrivateAttr(default=False)
@@ -1824,6 +1826,8 @@ class BaseAgent(KoiledModel):
         for key, hook in self._collected_startup_hooks.items():
             try:
                 previous = await self._aprevious_state_kwargs(hook)
+                if hasattr(hook, "afinish"):
+                    self._entered_lifecycles.append(hook)
                 answer = await asyncio.wait_for(
                     hook.arun(
                         app_context=app_context,
@@ -1887,6 +1891,25 @@ class BaseAgent(KoiledModel):
                 hook_error.__cause__ = e
                 logger.error(hook_error, exc_info=hook_error)
 
+        # After the shutdown hooks: they may take what these set up.
+        await self._afinish_lifecycles()
+
+    async def _afinish_lifecycles(self) -> None:
+        """Run what follows each lifecycle hook's yield, the last one entered first.
+
+        Like a shutdown hook, one that fails or times out is logged, and the rest still run.
+        """
+        from arkitekt_spec.declare.agents.hooks.errors import ShutdownHookError
+
+        entered, self._entered_lifecycles = self._entered_lifecycles, []
+        for hook in reversed(entered):
+            try:
+                await asyncio.wait_for(hook.afinish(), timeout=self.shutdown_hook_timeout)
+            except Exception as e:
+                hook_error = ShutdownHookError(f"Lifecycle hook {hook.func.__name__} failed")
+                hook_error.__cause__ = e
+                logger.error(hook_error, exc_info=hook_error)
+
     @property
     def registered_agent_id(self) -> str | None:
         """The id this agent's backend assigned it, once registered.
@@ -1928,7 +1951,13 @@ class BaseAgent(KoiledModel):
         """
         # A state is built unrestricted by its startup hook; adopting it (in
         # ainit_states) is what makes later changes need their locks.
-        hook_return = await self.arun_startup_hooks(app_context=app_context)
+        try:
+            hook_return = await self.arun_startup_hooks(app_context=app_context)
+        except BaseException:
+            # No shutdown hook runs for a start that failed here, but the lifecycle
+            # hooks before the failing one are entered.
+            await self._afinish_lifecycles()
+            raise
         # From here on the app has set up resources, so teardown owes it the
         # shutdown hooks (even if the rest of the startup fails).
         self._ran_startup_hooks = True

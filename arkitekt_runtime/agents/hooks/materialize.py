@@ -4,6 +4,7 @@ from typing import Any
 
 from arkitekt_spec.declare.agents.hooks.declare import (
     BackgroundDeclaration,
+    LifecycleHookDeclaration,
     ShutdownHookDeclaration,
     StartupHookDeclaration,
 )
@@ -12,7 +13,11 @@ from arkitekt_runtime.agents.hooks.background import (
     WrappedThreadedBackgroundTask,
 )
 from arkitekt_runtime.agents.hooks.shutdown import ThreadedShutdownHook, WrappedShutdownHook
-from arkitekt_runtime.agents.hooks.startup import ThreadedStartupHook, WrappedStartupHook
+from arkitekt_runtime.agents.hooks.startup import (
+    ThreadedStartupHook,
+    WrappedLifecycleHook,
+    WrappedStartupHook,
+)
 
 
 def materialize_hook(declaration: Any) -> Any:  # noqa: ANN401
@@ -24,7 +29,9 @@ def materialize_hook(declaration: Any) -> Any:  # noqa: ANN401
     if hasattr(declaration, "arun"):
         return declaration
     func, registry = declaration.func, declaration.structure_registry
-    if isinstance(declaration, StartupHookDeclaration):
+    if isinstance(declaration, LifecycleHookDeclaration):
+        cls = WrappedLifecycleHook
+    elif isinstance(declaration, StartupHookDeclaration):
         cls = ThreadedStartupHook if declaration.threaded else WrappedStartupHook
     elif isinstance(declaration, BackgroundDeclaration):
         cls = WrappedThreadedBackgroundTask if declaration.threaded else WrappedBackgroundTask
