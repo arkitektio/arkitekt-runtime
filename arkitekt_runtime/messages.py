@@ -76,15 +76,12 @@ class ToAgentMessageType(str, Enum):
     BOUNCE = "BOUNCE"
     KICK = "KICK"
     PROTOCOL_ERROR = "PROTOCOL_ERROR"
-    EVENT_ACK = "EVENT_ACK"
     # Cumulative: everything of a journal session up to a position is persisted.
     JOURNAL_ACK = "JOURNAL_ACK"
     ASSIGN_RESPONSE = "ASSIGN_RESPONSE"
     PROBE_RESPONSE = "PROBE_RESPONSE"
     STATE_REVISION_RESPONSE = "STATE_REVISION_RESPONSE"
     # Replies to the agent's shelving requests.
-    SHELVED = "SHELVED"
-    UNSHELVED = "UNSHELVED"
     # Caller-bound event-stream mirrors — one per TaskEventKind — streamed back to the
     # participant that originated the task (see ``ExecutionEvent`` and subclasses).
     BOUND_EVENT = "BOUND_EVENT"
@@ -865,9 +862,8 @@ class RegistrationDiagnostic(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Shelving — numbered frames: the agent mints the drawer's id (``resource_id``)
-# itself, and nothing is replied (``JOURNAL_ACK`` covers them). ``Shelved`` and
-# ``Unshelved`` are what older servers answer; the agent ignores them.
+# Shelving: the agent mints the drawer's id (``resource_id``) itself, and nothing
+# is replied (``JOURNAL_ACK`` covers numbered frames).
 # --------------------------------------------------------------------------- #
 
 
@@ -878,7 +874,7 @@ class Shelve(JournaledMessage):
     type: Literal[FromAgentMessageType.SHELVE] = FromAgentMessageType.SHELVE
     ref: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="The resource id again (older servers echo it on Shelved).",
+        description="The resource id again.",
     )
     identifier: str
     resource_id: str
@@ -887,15 +883,6 @@ class Shelve(JournaledMessage):
     task: str | None = Field(
         default=None, description="The task that shelved the value, if one did."
     )
-
-
-class Shelved(Message):
-    """An older backend's answer to ``Shelve`` (ignored)."""
-
-    type: Literal[ToAgentMessageType.SHELVED] = ToAgentMessageType.SHELVED
-    ref: str
-    drawer: str | None = None
-    error: str | None = None
 
 
 class Unshelve(JournaledMessage):
@@ -908,14 +895,6 @@ class Unshelve(JournaledMessage):
         description="Client-minted id (the resource id, by convention).",
     )
     drawer: str
-
-
-class Unshelved(Message):
-    """An older backend's answer to ``Unshelve`` (ignored)."""
-
-    type: Literal[ToAgentMessageType.UNSHELVED] = ToAgentMessageType.UNSHELVED
-    ref: str
-    error: str | None = None
 
 
 class AssignRequest(Message):
@@ -1180,32 +1159,11 @@ class ControlResponse(Message):
     )
 
 
-class EventAck(Message):
-    """Backend → agent acknowledgement that a reported event was made durable.
-
-    Legacy: an agent that numbers its frames retires them on ``JournalAck`` alone, and
-    the server stops sending this once a connection has sent a numbered frame. Parsed,
-    and ignored.
-    """
-
-    type: Literal[ToAgentMessageType.EVENT_ACK] = ToAgentMessageType.EVENT_ACK
-    event: str = Field(description="The id of the FromAgentEvent being acknowledged.")
-    task: str | None = Field(
-        default=None,
-        description="The task the acked event belonged to, for convenience.",
-    )
-    seq: int | None = Field(
-        default=None,
-        description="The stream sequence acknowledged, if the event carried one.",
-    )
-
-
 class JournalAck(Message):
     """Backend → agent: everything of ``journal_session`` up to ``pos`` is projected.
 
     Cumulative, and the only thing that retires a numbered frame the agent retains
-    (terminal reports included: the server sends no ``EventAck`` on a connection that
-    has sent a numbered frame).
+    (terminal reports included).
     """
 
     type: Literal[ToAgentMessageType.JOURNAL_ACK] = ToAgentMessageType.JOURNAL_ACK
@@ -1454,12 +1412,9 @@ ToAgentMessage = Union[
     Decide,
     BlokRefused,
     Collect,
-    Shelved,
-    Unshelved,
     ProtocolError,
     Bounce,
     Kick,
-    EventAck,
     JournalAck,
     AssignResponse,
     ProbeResponse,

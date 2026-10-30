@@ -351,7 +351,6 @@ class BaseAgent(KoiledModel):
     stamps_frames: ClassVar[bool] = True
     """Whether numbered frames carry ``pos``/``journal_session``/``agent_ts``/``task_step``
     on the wire. The served agent adds them only for websocket clients that opt in."""
-    # message id -> retained terminal event awaiting its EventAck (insertion-ordered dict)
     # Recently finished task ids (insertion-ordered, bounded): lets a redelivered Assign for
     # work that already ran be recognised after ``managed_assignments`` has forgotten it.
     _finished_tasks: dict[str, None] = PrivateAttr(default_factory=dict)
@@ -880,11 +879,10 @@ class BaseAgent(KoiledModel):
         being read as one thing:
 
         * **session** — the connection's own bookkeeping: the ``Init`` acknowledging our
-          ``Register``, and the ``EventAck`` that ends a report's retention.
+          ``Register``, and the ``JournalAck`` that ends a report's retention.
         * **provider** — work the backend assigns *to* this agent, routed to actors.
         * **caller** — answers to work this agent delegated, routed to the caller postman.
-        * **shelve** — local memory the backend asks us to release, and its answers to
-          what we shelved.
+        * **shelve** — local memory the backend asks us to release.
         """
         logger.info(f"Agent received {message}")
 
@@ -1563,7 +1561,7 @@ class BaseAgent(KoiledModel):
         """Keep an emitted message until its runtime's backend confirms it.
 
         Nothing to keep in the core: a runtime whose backend acknowledges durability
-        (rekuest's socket agent: ``EventAck``/``JournalAck``) overrides this.
+        (rekuest's socket agent: ``JournalAck``) overrides this.
         """
 
     async def _adeliver(
