@@ -23,8 +23,7 @@ from arkitekt_runtime.agents.hooks.startup import (
 def materialize_hook(declaration: Any) -> Any:  # noqa: ANN401
     """The runner for a declared hook: in the event loop, or in a worker thread.
 
-    A hook that already runs (a hand-written ``BackgroundTask``/``StartupHook``/
-    ``ShutdownHook`` with an ``arun``) is returned as it is.
+    A hook that already runs (a hand-written one with an ``arun``) is returned as it is.
     """
     if hasattr(declaration, "arun"):
         return declaration
