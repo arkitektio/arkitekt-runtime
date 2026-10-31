@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
 
 from arkitekt_spec.actions import (
+    PortKind,
     ReturnPortInput,
     StateDefinitionInput,
 )
@@ -157,11 +158,12 @@ def _resolve_child_port(
     parent_port: ReturnPortInput | None,
     key: str | int,
 ) -> ReturnPortInput | None:
-    """Resolve the schema port for a direct child without walking a JSON path."""
-    if isinstance(key, int):
-        if parent_port and parent_port.children:
-            return parent_port.children[0]
-        return None
+    """Resolve the schema port for a direct child without walking a JSON path.
+
+    A list's and a map's one child describes every item: an index or a key names no port.
+    """
+    if isinstance(key, int) or (parent_port and parent_port.kind == PortKind.DICT):
+        return parent_port.children[0] if parent_port and parent_port.children else None
 
     search_scope = (
         config.definition.ports if parent_port is None else (parent_port.children or [])
