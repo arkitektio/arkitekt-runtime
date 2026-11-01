@@ -16,6 +16,7 @@ from types import TracebackType
 from typing import Protocol, runtime_checkable
 from collections.abc import AsyncIterator
 
+from arkitekt_spec.base import current_spec_version
 from pydantic import BaseModel, ConfigDict, Field
 
 from arkitekt_runtime.agents.policy import ConnectionPolicy
@@ -57,6 +58,8 @@ class HandshakeParams(BaseModel):
     A hint the agent states about itself, never authority: pickers narrow on it, and a
     supervisor still maps the agent to its own records before acting. Sent with every
     ``Register`` and outside the definition hash."""
+    spec_version: str = Field(default_factory=current_spec_version)
+    """The arkitekt-spec this process runs, sent on ``Register`` and outside the definition hash."""
     features: list[str] = Field(default_factory=list)
     """What the agent implements beyond the base protocol, sent on ``Register``
     (:data:`~arkitekt_runtime.messages.FEATURE_STATE_REQUIRES`). A transport that drops it

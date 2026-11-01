@@ -803,6 +803,9 @@ class Register(AgentDeclaration, Message):
 
     type: Literal[FromAgentMessageType.REGISTER] = FromAgentMessageType.REGISTER
     token: str
+    spec_version: str = Field(
+        description="The arkitekt-spec this agent runs, which a server refuses to go without. It says what the agent was written against: what a server may send it is what `features` says. Not part of the declaration or its hash, so an upgrade that declares nothing new still says it.",
+    )
     force: bool = False
     """If another connection is already registered for this agent, kick it and take over.
 

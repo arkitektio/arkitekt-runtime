@@ -53,6 +53,6 @@ def test_no_working_nvidia_smi_is_no_gpus(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_register_carries_it_on_the_wire() -> None:
-    message = Register(token="t", hardware=AgentHardware(cpu_count=4, memory_mib=2048, gpus=[AgentGpu(name="G", memory_mib=8)]))
+    message = Register(token="t", spec_version="8.0.0", hardware=AgentHardware(cpu_count=4, memory_mib=2048, gpus=[AgentGpu(name="G", memory_mib=8)]))
 
     assert '"hardware":{"cpu_count":4,"memory_mib":2048,"gpus":[{"name":"G","memory_mib":8}]}' in message.model_dump_json()

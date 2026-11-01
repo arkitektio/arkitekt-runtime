@@ -80,7 +80,7 @@ def test_numbers_and_folds() -> None:
     journal.append(messages.Completed(task="t"), "set")
     journal.append(messages.Unlock(key="cam"))
     assert journal.append(messages.HeartbeatEvent()) is None
-    assert journal.append(messages.Register(token="x")) is None
+    assert journal.append(messages.Register(spec_version="8.0.0", token="x")) is None
 
     assert seen == [
         (kind, pos + 1)
