@@ -15,7 +15,7 @@ import asyncio
 import logging
 from types import TracebackType
 import uuid
-from typing import Any, Optional, Self, TypeVar
+from typing import Any, Self, TypeVar
 from collections.abc import AsyncIterator
 
 from arkitekt_spec.declare.app import AppRegistry
@@ -56,7 +56,7 @@ class MemoryAgentTransport(AgentTransport):
 
     _watchers: list["asyncio.Queue[messages.FromAgentMessage]"] = []
 
-    _in_queue: Optional["asyncio.Queue[object]"] = None
+    _in_queue: "asyncio.Queue[object] | None" = None
     _connected: bool = False
 
     def model_post_init(self, __context: object) -> None:

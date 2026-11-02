@@ -20,7 +20,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Optional,
     Self,
 )
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Sequence
@@ -276,7 +275,7 @@ class BaseAgent(KoiledModel):
         default_factory=lambda: {}  # type: ignore[return-value]
     )
     _app_context: AppContext | None = PrivateAttr(default=None)
-    _caller_postman: Optional["Postman"] = PrivateAttr(default=None)
+    _caller_postman: "Postman | None" = PrivateAttr(default=None)
     """What calls to other actions go through, when the runtime wires one in."""
 
     _connected_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
