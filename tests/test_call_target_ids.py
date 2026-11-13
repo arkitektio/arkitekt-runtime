@@ -218,6 +218,23 @@ def test_an_assign_input_without_a_policy_dumps_as_it_did_before_policies() -> N
     assert AssignInput(args={}, capture=False, policy=TaskPolicy.AUTO).model_dump()["policy"] == "AUTO"
 
 
+def test_a_decide_input_takes_the_answer_values_and_what_to_remember() -> None:
+    """What rekuest's ``decide`` validates its input with: every field the server takes."""
+    from pydantic import ValidationError
+
+    from arkitekt_runtime.types import DecideInput, HoldRemember
+
+    plain = DecideInput(task="7", approved=True)
+    assert plain.model_dump(exclude_none=True) == {"task": "7", "approved": True}
+
+    remembered = DecideInput(task="7", approved=True, values={"slot": 2}, remember=HoldRemember.ASKER)
+    assert remembered.model_dump(exclude_none=True) == {"task": "7", "approved": True, "values": {"slot": 2}, "remember": "ASKER"}
+    assert [member.value for member in HoldRemember] == ["RUN", "ASKER", "ALWAYS"]
+
+    with pytest.raises(ValidationError):
+        DecideInput(task="7", approved=True, remember="FOREVER")
+
+
 class _Implementation:
     """An ``Implementation``: its own id, wrapping an action with no ports."""
 

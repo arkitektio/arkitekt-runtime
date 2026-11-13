@@ -63,6 +63,14 @@ class TaskPolicy(str, Enum):
     __str__ = str.__str__
 
 
+class HoldRemember(str, Enum):
+    """What an approval is remembered as: the allowance it leaves on the user's auto list. RUN: this action, whoever asks, for the rest of this run. ASKER: this action whenever the action that asked now asks again, in every run of the user. ALWAYS: this action, whoever asks, in every run of the user."""
+    RUN = 'RUN'
+    ASKER = 'ASKER'
+    ALWAYS = 'ALWAYS'
+    __str__ = str.__str__
+
+
 class MappedAgentInput(BaseModel):
     """The input for mapping actions to implementations in a agent."""
     key: str = Field(description='The key of the agent to map. This is used to identify the agent in the system.')
@@ -152,4 +160,6 @@ class DecideInput(BaseModel):
     task: ID = Field(description='The held task: a child an agent asked for, or a task that holds itself')
     approved: bool = Field(description="Approve (the child runs; a task's own hold carries on approved) or deny (the child ends DENIED without running; a task's own hold carries on denied)")
     answer: str | None = Field(default=None, description="What the person says with the decision. A child gets it as its Assign's message; a task's own hold gets it back.")
+    values: Args | None = Field(default=None, description="The answer through the blok a task asks with (a hold on a blok), by the blok's returns, and checked against them. Only an approved ask takes them.")
+    remember: HoldRemember | None = Field(default=None, description="Keep the approval as an allowance on the user's auto list, so the action is not asked for again: for the rest of this run (RUN), whenever the same action asks (ASKER), or whoever asks (ALWAYS). Only the approval of a child an agent asked for takes it. What else of the run waits for the same answer is released.")
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
