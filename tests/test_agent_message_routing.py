@@ -126,18 +126,6 @@ async def test_interrupt_reaches_the_actor_and_reports_interrupted(
 
 
 
-@pytest.mark.asyncio
-async def test_seq_is_monotonic_across_reports(
-    agent: BaseAgent, transport: MemoryAgentTransport
-) -> None:
-    """Every agent->backend event gets a strictly increasing stream seq."""
-    for i in range(4):
-        await agent._adispatch(messages.Progress(task="t", message=f"{i}", progress=i))
-
-    seqs = [p.seq for p in transport.of_type(messages.Progress)]
-    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), seqs
-
-
 
 
 @pytest.mark.asyncio
@@ -293,8 +281,6 @@ async def test_probe_flag_on_an_assign_is_visible_to_the_agent(
     ), "a normal assign must default to not-a-probe"
 
 
-
-
 @pytest.mark.asyncio
 async def test_session_init_opens_the_session_with_its_baseline_states(
     agent: BaseAgent, transport: MemoryAgentTransport
@@ -372,8 +358,6 @@ async def test_a_completed_task_is_not_reported_as_still_running(
     assert "task-1" not in agent.managed_assignments, (
         "a terminal report must retire the assignment the agent is managing"
     )
-
-
 
 
 @pytest.mark.asyncio

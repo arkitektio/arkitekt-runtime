@@ -105,6 +105,15 @@ JOURNALED_KINDS = frozenset(
         "EFFECT",
         "SHELVE",
         "UNSHELVE",
+        # What a task asks a person, and what it asks the backend to run or steer: kept
+        # until acknowledged like any report. Their answers come back as commands.
+        "HELD",
+        "INFORM",
+        "ASSIGN_REQUEST",
+        "CANCEL_REQUEST",
+        "INTERRUPT_REQUEST",
+        "PAUSE_REQUEST",
+        "RESUME_REQUEST",
     }
 )
 #: The id prefix of a probe task: ephemeral, never numbered.
@@ -151,6 +160,10 @@ def task_of(message: messages.Message) -> str | None:
         return message.task_id
     if isinstance(message, (messages.Unshelve, messages.SessionInit, messages.StateSnapshot)):
         return None
+    if isinstance(message, (messages.AssignRequest, messages.ControlRequest)):
+        # A request names the task it is about (a child), which is not a task this agent
+        # runs: it is numbered in the session, not in any task.
+        return None
     task = getattr(message, "task", None)
     return task if isinstance(task, str) else None
 
@@ -183,7 +196,7 @@ class JournalEntry:
     message_id: str
     """The frame's ``id``, as sent."""
     payload: dict[str, Any]
-    """The frame, without the stream-level ``seq``."""
+    """The frame, as sent."""
     step: int | None = None
     """The entry's step in its task (``task_step`` on the wire); ``None`` for entries
     of no task, and for a served agent's ``ASSIGN`` record."""
@@ -242,7 +255,6 @@ def stamp(frame: dict[str, Any], entry: JournalEntry) -> dict[str, Any]:
 def payload_of(message: messages.Message) -> dict[str, Any]:
     """A message as the journal records it: without the stream-level fields."""
     payload = message.model_dump(mode="json")
-    payload.pop("seq", None)
     for key in messages.JOURNAL_STAMP_FIELDS:
         payload.pop(key, None)
     return payload

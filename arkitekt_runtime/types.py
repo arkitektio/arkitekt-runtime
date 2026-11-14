@@ -112,6 +112,8 @@ class AssignInput(BaseModel):
     step: bool | None = Field(default=None, description='Whether the task should step. Ie. go to the next breakpoint')
     policy: TaskPolicy | None = Field(default=None, description='Whether the work the agents ask for under this task waits for a person: ASK (the default) holds every child an agent assigns until someone approves it; AUTO runs them at once. Only a root takes it; children inherit.')
     state_requires: tuple[StateRequirementInput, ...] | None = Field(validation_alias=AliasChoices('state_requires', 'stateRequires'), serialization_alias='stateRequires', default=None, description="What the agent's state must hold for the task to run. Refused unless the agent says it tests them.")
+    on_lost: str | None = Field(validation_alias=AliasChoices('on_lost', 'onLost'), serialization_alias='onLost', default=None, description="What becomes of the task should its agent be lost while it runs: FAIL, RESUME (a workflow) or RESTART (an idempotent action). Unset, a workflow resumes and anything else ends lost.")
+    max_resumes: int | None = Field(validation_alias=AliasChoices('max_resumes', 'maxResumes'), serialization_alias='maxResumes', default=None, description="How often the task may be sent again (resumed or restarted) before it ends lost after all. Unset, the server's own limit applies.")
     model_config = ConfigDict(frozen=True, extra='forbid', populate_by_name=True, use_enum_values=True)
 
     @model_serializer(mode="wrap")
@@ -121,8 +123,11 @@ class AssignInput(BaseModel):
         # Likewise `state_requires`, which a server from before them does not know.
         data = handler(self)
         if isinstance(data, dict):
-            for key in ("policy", "state_requires", "stateRequires"):
+            for key in ("policy", "state_requires", "stateRequires", "on_lost", "onLost"):
                 if key in data and not data[key]:
+                    data.pop(key)
+            for key in ("max_resumes", "maxResumes"):
+                if key in data and data[key] is None:
                     data.pop(key)
         return data
 

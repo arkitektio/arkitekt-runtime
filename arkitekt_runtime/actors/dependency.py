@@ -73,6 +73,8 @@ class AgentMethodProxy:
         kwargs.setdefault("parent", self.task.assignment)
         kwargs.setdefault("postman", self.agent.caller_postman)
         kwargs.setdefault("structure_registry", self.structure_registry)
+        # How the app said its calls of this method are to be treated (``@policy``).
+        kwargs.setdefault("call_policy", self.action.policy)
         return kwargs
 
     def call(self, *args: Any, **kwargs: Any) -> Any:

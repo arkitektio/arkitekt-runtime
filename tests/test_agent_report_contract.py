@@ -47,7 +47,9 @@ def _cases(*groups: str) -> list[Any]:
 # ---------------------------------------------------------------- fixture --
 
 
-@pytest.mark.parametrize("frame", _cases("numbered_from_agent", "unnumbered_from_agent"))
+@pytest.mark.parametrize(
+    "frame", _cases("numbered_from_agent", "numbered_requests_from_agent", "unnumbered_from_agent")
+)
 def test_every_frame_from_the_agent_round_trips(frame: dict[str, Any]) -> None:
     message = FROM_AGENT.validate_python(frame)
     assert message.model_dump(mode="json", by_alias=True, exclude_unset=True) == frame
@@ -153,7 +155,6 @@ def test_a_probes_reports_are_never_numbered_but_its_patches_are() -> None:
             op="replace",
             path="/exposure",
             value=2,
-            old_value=None,
             task_id="p-abc",
         )
     )
@@ -246,7 +247,6 @@ async def test_effects_are_recorded_as_numbered_task_steps(func: Any) -> None:  
     assert set(wire) == {
         "type",
         "id",
-        "seq",
         "task",
         "effect",
         "value",
@@ -347,7 +347,7 @@ async def test_shelving_is_one_numbered_frame_and_nothing_waits_for_a_reply() ->
     (shelve,) = transport.of_type(messages.Shelve)
     assert agent.shelve[resource_id] is image
     assert len(resource_id) == 32 and int(resource_id, 16) >= 0
-    assert (shelve.ref, shelve.resource_id, shelve.label) == (resource_id,) * 2 + ("an image",)
+    assert (shelve.resource_id, shelve.label) == (resource_id, "an image")
     assert (shelve.identifier, shelve.task, shelve.pos, shelve.task_step) == (
         "@mikro/image",
         None,
@@ -371,7 +371,7 @@ async def test_shelving_is_one_numbered_frame_and_nothing_waits_for_a_reply() ->
     await agent.process(messages.Collect(drawers=[resource_id]))
     assert resource_id not in agent.shelve
     (unshelve,) = transport.of_type(messages.Unshelve)
-    assert (unshelve.ref, unshelve.drawer, unshelve.pos) == (resource_id, resource_id, 4)
+    assert (unshelve.drawer, unshelve.pos) == (resource_id, 4)
 
 
 async def test_an_unlock_names_the_task_that_held_the_lock() -> None:

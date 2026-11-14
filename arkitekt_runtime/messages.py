@@ -37,25 +37,6 @@ LogLevelLiteral = Literal[
 ]
 
 
-class AgentMode(str, Enum):
-    """How a participant intends to use the single agent protocol.
-
-    Not currently carried on the wire: the mode is derived server-side from the
-    capability scopes the token carries (see ``facade.capabilities``). Kept as the
-    vocabulary for those two independent axes, ``executes_work`` and ``can_assign_root``:
-
-    - ``EXECUTOR``     — runs tasks (executes_work), may not originate roots.
-    - ``CALLER``       — originates root tasks (can_assign_root), does not execute.
-    - ``ORCHESTRATOR`` — both executes work and originates roots.
-    - ``OBSERVER``     — neither; a read-only dashboard that only streams events.
-    """
-
-    EXECUTOR = "EXECUTOR"
-    CALLER = "CALLER"
-    ORCHESTRATOR = "ORCHESTRATOR"
-    OBSERVER = "OBSERVER"
-
-
 class ToAgentMessageType(str, Enum):
     """The message types that can be sent to the agent from the rekuest backend"""
 
@@ -69,15 +50,18 @@ class ToAgentMessageType(str, Enum):
     DECIDE = "DECIDE"
     # The blok a HELD or an INFORM carried could not be made: nothing of it was kept.
     BLOK_REFUSED = "BLOK_REFUSED"
-    PROVIDE = "PROVIDE"
-    UNPROVIDE = "UNPROVIDE"
     INIT = "INIT"
     HEARTBEAT = "HEARTBEAT"
     BOUNCE = "BOUNCE"
     KICK = "KICK"
     PROTOCOL_ERROR = "PROTOCOL_ERROR"
-    # Cumulative: everything of a journal session up to a position is persisted.
+    # Cumulative: everything of a journal session through a position is persisted.
     JOURNAL_ACK = "JOURNAL_ACK"
+    # A frame arrived ahead of the position expected: send again from there.
+    JOURNAL_NACK = "JOURNAL_NACK"
+    # What of this task? (to the agent it was given to), and the answer to a caller who asked.
+    INQUIRE = "INQUIRE"
+    INQUIRE_RESPONSE = "INQUIRE_RESPONSE"
     ASSIGN_RESPONSE = "ASSIGN_RESPONSE"
     PROBE_RESPONSE = "PROBE_RESPONSE"
     STATE_REVISION_RESPONSE = "STATE_REVISION_RESPONSE"
@@ -127,9 +111,15 @@ class FromAgentMessageType(str, Enum):
     CRITICAL = "CRITICAL"
     RESUMED = "RESUMED"
     CANCELLED = "CANCELLED"
-    APP_CANCELLED = "APP_CANCELLED"  # Cancelled by the app not the user how assigned
     INTERRUPTED = "INTERRUPTED"
     HEARTBEAT_ANSWER = "HEARTBEAT_ANSWER"
+    # Cumulative: every command through a position is handled.
+    COMMAND_ACK = "COMMAND_ACK"
+    # What this agent knows of a task it was asked about, and a caller asking about one.
+    INQUIRY_ANSWER = "INQUIRY_ANSWER"
+    INQUIRE_REQUEST = "INQUIRE_REQUEST"
+    # Reports the agent no longer holds: the only way a position is passed over.
+    JOURNAL_SKIP = "JOURNAL_SKIP"
     STATE_PATCH = "STATE_PATCH"
     LOCK = "LOCK"
     UNLOCK = "UNLOCK"
@@ -158,7 +148,7 @@ class Message(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
 
-#: The journal fields a numbered frame carries next to its ``id`` and ``seq``.
+#: The journal fields a numbered frame carries next to its ``id``.
 JOURNAL_STAMP_FIELDS = ("pos", "journal_session", "agent_ts", "task_step")
 
 
@@ -203,19 +193,36 @@ class JournaledMessage(Message):
 
 
 class FromAgentEvent(JournaledMessage):
-    """Base for agent→backend reporting events that participate in the ack/resume stream.
+    """Base for a task's reports: what a task says about itself, each at its position."""
 
-    ``seq`` is a monotonic, per-connection stream sequence used only for at-least-once
-    **stream** dedup/resume — it is NOT an execution resume cursor (resuming execution
-    from a position would require a recorded-effect log, which is deliberately out of
-    scope). The backend dedups terminal reports by task id regardless of ``seq``.
+
+class Command(Message):
+    """Base for what the backend sends an agent and must not lose: work for it and what
+    steers it, the answers to its numbered requests, and what happened to the tasks it
+    assigned.
+
+    A command carries ``pos``, its position in the backend's stream to this agent (1, 2,
+    3, ...). The backend keeps a command until a ``CommandAck`` covers it and sends it
+    again after a reconnect; the agent handles a position once. A probe's frames are
+    commands by kind and travel without a position: a probe is ephemeral.
     """
 
-    seq: int | None = Field(
+    pos: int | None = Field(
         default=None,
-        description="Monotonic per-connection stream sequence for at-least-once dedup/resume. Stream-level only — never an execution resume cursor.",
+        description="The command's position in the backend's stream to this agent. Unset on a probe's frame, and where no backend numbers (a served agent, a local run).",
     )
 
+    @model_serializer(mode="wrap")
+    def _drop_unset_position(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        data = handler(self)
+        if isinstance(data, dict) and data.get("pos") is None:
+            data.pop("pos", None)
+        return data
+
+
+FEATURE_PROTOCOL_2 = "protocol_2"
+"""What an agent speaking this protocol says on ``Register`` (``features``): positions in both
+directions, acknowledged commands, refused gaps. A server refuses an agent that does not."""
 
 FEATURE_STATE_REQUIRES = "state_requires"
 """What an agent says on ``Register`` (``features``) when it tests an Assign's
@@ -223,7 +230,7 @@ FEATURE_STATE_REQUIRES = "state_requires"
 would drop them and run the task unchecked."""
 
 
-class Assign(Message):
+class Assign(Command):
     """An assign call
 
     And assign call is the initial request to start a specific
@@ -327,7 +334,7 @@ class Heartbeat(Message):
     type: Literal[ToAgentMessageType.HEARTBEAT] = ToAgentMessageType.HEARTBEAT
 
 
-class Pause(Message):
+class Pause(Command):
     """A pause call
 
     A pause call tells the agent to pause the task
@@ -343,7 +350,7 @@ class Pause(Message):
     task: str
 
 
-class Resume(Message):
+class Resume(Command):
     """A resume call
 
     A resume call unpauses the pause. With ``step=True`` the agent resumes only until the
@@ -355,7 +362,7 @@ class Resume(Message):
     step: bool = False
 
 
-class Decide(Message):
+class Decide(Command):
     """The answer to a task's own hold (``Held``).
 
     A person approved or denied it, or the run is in auto-mode (``auto``) and the server
@@ -371,7 +378,7 @@ class Decide(Message):
     """The answer through the hold's blok (``task.ask``), checked against its returns."""
 
 
-class BlokRefused(Message):
+class BlokRefused(Command):
     """The blok a ``Held`` or an ``Inform`` carried could not be made, and why: nothing of
     the frame was kept (the task is not held, nothing is shown)."""
 
@@ -380,7 +387,7 @@ class BlokRefused(Message):
     reason: str
 
 
-class Cancel(Message):
+class Cancel(Command):
     """A cancel call
 
     A cancellation call is a request from the user to
@@ -400,7 +407,7 @@ class Cancel(Message):
     task: str
 
 
-class Collect(Message):
+class Collect(Command):
     """A collect call
 
     A collect call tells the agent to collect data LOCALLY,
@@ -416,7 +423,7 @@ class Collect(Message):
     drawers: list[str]
 
 
-class Interrupt(Message):
+class Interrupt(Command):
     """A interrupt"""
 
     type: Literal[ToAgentMessageType.INTERRUPT] = ToAgentMessageType.INTERRUPT
@@ -647,9 +654,6 @@ class StatePatch(JournaledMessage):
     op: str
     path: str
     value: Any
-    old_value: Any | None = Field(
-        description="The old value of the patch, which can be used for debugging and tracing purposes"
-    )
     task_id: str | None = Field(
         default=None,
         description="An optional correlation id to correlate this patch with a specific task_id or event in the agent's execution, which can be used for debugging and tracing purposes",
@@ -744,15 +748,110 @@ class Effect(FromAgentEvent):
     """What the task calls this value (by default the kind and occurrence, ``NOW:1``)."""
 
 
-class AssignInquiry(BaseModel):
-    """An assign inquiry
+class TaskStatus(str, Enum):
+    """What an agent says about a task it is asked about (``Inquire``), from memory and at
+    once: asking never touches the task."""
 
-    An assign inquiry is a request from rekuest_backend to the agent
-    to check the state of a specific task. This is used to check if the
-    task is still running or if after a reconnect has died.
+    UNKNOWN = "UNKNOWN"
+    """The agent has no such task. From the agent the task was given to, that is final: the
+    backend ends the task as lost."""
+    WAITING = "WAITING"
+    """Taken, not started yet (behind a lock, or while the app starts)."""
+    RUNNING = "RUNNING"
+    """Started, and at work."""
+    PAUSED = "PAUSED"
+    """Stopped at a pause point, until it is resumed."""
+    HELD = "HELD"
+    """Waiting for a person's decision (a hold it asked for)."""
+    ENDED = "ENDED"
+    """The agent reported its end."""
+
+
+class OnLost(str, Enum):
+    """What an assign asks for should its task's agent be lost while it runs.
+
+    Not asked, the implementation decides: a workflow goes on from what it recorded (nothing
+    is done twice: what it did is read back, not repeated), anything else ends lost. Running
+    something again from the start is never done unasked.
     """
 
+    FAIL = "FAIL"
+    """It ends lost, whatever it is: the caller wants to decide what comes next."""
+    RESUME = "RESUME"
+    """A workflow is sent again with what it recorded, and goes on. Refused for anything else."""
+    RESTART = "RESTART"
+    """It is run again from the start. Refused unless the action is declared idempotent or pure."""
+
+
+class Inquire(Message):
+    """Backend → agent: what of this task? Answered at once with an ``InquiryAnswer``.
+
+    A question, not a command: it has no position, is not kept, and changes nothing. The
+    backend asks when whoever waits for the task asks it to, and about what an agent had
+    under way when it comes back from a dropped connection.
+    """
+
+    type: Literal[ToAgentMessageType.INQUIRE] = ToAgentMessageType.INQUIRE
     task: str
+    request: str | None = Field(default=None, description="Says which question an answer belongs to.")
+
+
+class InquiryAnswer(Message):
+    """Agent → backend: what this agent knows of the task it was asked about."""
+
+    type: Literal[FromAgentMessageType.INQUIRY_ANSWER] = FromAgentMessageType.INQUIRY_ANSWER
+    task: str
+    status: TaskStatus
+    request: str | None = None
+    step: int | None = Field(default=None, description="The last step the task reported.")
+    reported_at: float | None = Field(
+        default=None, description="When the task last reported anything, in seconds since the epoch."
+    )
+    progress: int | None = Field(default=None, description="What the task last said of its progress.")
+    message: str | None = Field(default=None, description="The message of its last progress or log.")
+
+    @model_serializer(mode="wrap")
+    def _drop_unset(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("request", "step", "reported_at", "progress", "message"):
+                if key in data and data[key] is None:
+                    del data[key]
+        return data
+
+
+class InquireRequest(Message):
+    """Caller → backend: is the agent of this task, which I assigned, still on it?
+
+    A read: not numbered, not kept, and nothing is done to the task. Answered with an
+    ``InquireResponse``. How long to wait for a task, and what to do when its agent no
+    longer knows it, stays with whoever asks.
+    """
+
+    type: Literal[FromAgentMessageType.INQUIRE_REQUEST] = FromAgentMessageType.INQUIRE_REQUEST
+    task: str
+
+
+class InquireResponse(Message):
+    """Backend → caller: what the task's agent says of it, or, where the agent was not asked
+    (it is away, or has not acknowledged the assign yet), what the backend knows."""
+
+    type: Literal[ToAgentMessageType.INQUIRE_RESPONSE] = ToAgentMessageType.INQUIRE_RESPONSE
+    request: str
+    task: str
+    status: TaskStatus | None = Field(
+        default=None,
+        description="What the agent said; ENDED for a task the backend already closed. None where the agent was not asked or did not answer.",
+    )
+    asked: bool = Field(default=False, description="Whether the agent was asked.")
+    detail: str | None = Field(default=None, description="Why the agent was not asked, or why there is no answer.")
+    step: int | None = Field(default=None, description="The last step the task reported, as its agent has it.")
+    reported_at: float | None = Field(
+        default=None, description="When the task last reported anything, as its agent has it (seconds since the epoch)."
+    )
+    progress: int | None = Field(default=None, description="What the task last said of its progress.")
+    message: str | None = Field(default=None, description="The message of its last progress or log.")
+    error: str | None = None
 
 
 class AgentDeclaration(BaseModel):
@@ -824,7 +923,19 @@ class Register(AgentDeclaration, Message):
     or its hash, so a hash-equal reconnect still says it, and moving machines declares nothing."""
     features: list[str] = Field(
         default_factory=list,
-        description="What this agent implements beyond the base protocol. 'state_requires': it tests an Assign's state_requires; a server sends none to an agent that does not say so.",
+        description="What this agent implements beyond the base protocol. 'state_requires': it tests an Assign's state_requires; a server sends none to an agent that does not say so. 'protocol_2': it speaks this protocol, without which a server refuses it.",
+    )
+    nonce: str | None = Field(
+        default=None,
+        description="New for every connection attempt; the Init that answers this Register says it again.",
+    )
+    commands_seen: int = Field(
+        default=0,
+        description="The highest command position this process has handled; 0 for a fresh process. The server sends its commands from the one after.",
+    )
+    sessions: list[str] = Field(
+        default_factory=list,
+        description="The journal sessions this agent still holds unacknowledged frames of.",
     )
 
 
@@ -844,7 +955,6 @@ class Init(Message):
 
     type: Literal[ToAgentMessageType.INIT] = ToAgentMessageType.INIT
     agent: str
-    inquiries: list[AssignInquiry] = []
     hash: str | None = Field(
         default=None,
         description="The definition hash the backend now holds for this agent: what the Register declared, or what an earlier one did. None when it was never implemented.",
@@ -852,6 +962,14 @@ class Init(Message):
     diagnostics: list["RegistrationDiagnostic"] = Field(
         default_factory=list,
         description="Non-fatal findings of the registration the Register carried; the agent surfaces them as CatalogWarnings.",
+    )
+    nonce: str | None = Field(
+        default=None,
+        description="The nonce of the Register this answers. An Init that is not the current connection's is ignored.",
+    )
+    positions: dict[str, int] = Field(
+        default_factory=dict,
+        description="How far the backend has projected each journal session the Register listed. The agent drops what is at or below it and sends the rest.",
     )
 
 
@@ -872,13 +990,9 @@ class RegistrationDiagnostic(BaseModel):
 
 class Shelve(JournaledMessage):
     """Record that the agent holds a value in memory: a drawer on its shelve, named by
-    the ``resource_id`` the agent minted (``ref`` is the same id)."""
+    the ``resource_id`` the agent minted."""
 
     type: Literal[FromAgentMessageType.SHELVE] = FromAgentMessageType.SHELVE
-    ref: str = Field(
-        default_factory=lambda: str(uuid.uuid4()),
-        description="The resource id again.",
-    )
     identifier: str
     resource_id: str
     label: str | None = None
@@ -893,14 +1007,10 @@ class Unshelve(JournaledMessage):
     its resource id."""
 
     type: Literal[FromAgentMessageType.UNSHELVE] = FromAgentMessageType.UNSHELVE
-    ref: str = Field(
-        default_factory=lambda: str(uuid.uuid4()),
-        description="Client-minted id (the resource id, by convention).",
-    )
     drawer: str
 
 
-class AssignRequest(Message):
+class AssignRequest(JournaledMessage):
     """A caller's request to originate (or resolve) a task over the agent socket.
 
     This is the WebSocket equivalent of the GraphQL ``assign`` mutation: a participant
@@ -980,6 +1090,14 @@ class AssignRequest(Message):
         default_factory=list,
         description="What the child's agent's state must hold for it to run (see Assign.state_requires).",
     )
+    on_lost: OnLost | None = Field(
+        default=None,
+        description="What to do with the child should its agent be lost while it runs. Left out, a workflow resumes and anything else ends lost.",
+    )
+    max_resumes: int | None = Field(
+        default=None,
+        description="How often the child may be sent again (resumed or restarted) before it ends lost after all. Left out, the server's own limit applies.",
+    )
 
 
 class StateRevisionRequest(Message):
@@ -1009,7 +1127,7 @@ class StateRevisionResponse(Message):
     error: str | None = None
 
 
-class AssignResponse(Message):
+class AssignResponse(Command):
     """The backend's authoritative ack that an ``AssignRequest`` was persisted.
 
     Echoes the originating request id (``request``) and carries the durable task
@@ -1085,7 +1203,7 @@ class ProbeResponse(Message):
     )
 
 
-class ControlRequest(Message):
+class ControlRequest(JournaledMessage):
     """Base for a caller's lifecycle-control request over the socket (cancel/interrupt/…).
 
     The WebSocket equivalent of the GraphQL postman lifecycle mutations: the caller that
@@ -1137,7 +1255,7 @@ class ResumeRequest(ControlRequest):
     step: bool = False
 
 
-class ControlResponse(Message):
+class ControlResponse(Command):
     """The backend's ack that a caller lifecycle-control *request* was accepted (or rejected).
 
     ``accepted`` is True once the request was persisted (an ``-ING`` event) and broadcast to the
@@ -1163,7 +1281,7 @@ class ControlResponse(Message):
 
 
 class JournalAck(Message):
-    """Backend → agent: everything of ``journal_session`` up to ``pos`` is projected.
+    """Backend → agent: everything of ``journal_session`` through ``through`` is projected.
 
     Cumulative, and the only thing that retires a numbered frame the agent retains
     (terminal reports included).
@@ -1171,32 +1289,57 @@ class JournalAck(Message):
 
     type: Literal[ToAgentMessageType.JOURNAL_ACK] = ToAgentMessageType.JOURNAL_ACK
     journal_session: str = Field(description="The journal session the position counts in.")
-    pos: int = Field(description="Every position up to and including this one is persisted.")
+    through: int = Field(description="Every position up to and including this one is persisted.")
 
 
-class ExecutionEvent(Message):
+class JournalNack(Message):
+    """Backend → agent: a frame of ``journal_session`` arrived ahead of ``expected`` and was
+    not taken. The agent sends again from ``expected``, in order; if it no longer holds that
+    frame it says so with a ``JournalSkip``."""
+
+    type: Literal[ToAgentMessageType.JOURNAL_NACK] = ToAgentMessageType.JOURNAL_NACK
+    journal_session: str = Field(description="The journal session the position counts in.")
+    expected: int = Field(description="The position the backend takes next.")
+
+
+class CommandAck(Message):
+    """Agent → backend: every command through ``through`` is handled. Cumulative; the
+    backend forgets them."""
+
+    type: Literal[FromAgentMessageType.COMMAND_ACK] = FromAgentMessageType.COMMAND_ACK
+    through: int = Field(description="Every command up to and including this position is handled.")
+
+
+class JournalSkip(Message):
+    """Agent → backend: the reports ``first`` to ``last`` of ``session`` are gone (the agent
+    no longer holds them). The answer to a ``JournalNack`` it cannot satisfy, and the only
+    way a position is ever passed over: the backend records the loss and goes on."""
+
+    type: Literal[FromAgentMessageType.JOURNAL_SKIP] = FromAgentMessageType.JOURNAL_SKIP
+    session: str = Field(description="The journal session the positions count in.")
+    first: int
+    last: int
+
+
+class ExecutionEvent(Command):
     """Base for backend→caller task-event mirrors.
 
     When a participant originates work (``AssignRequest``), each resulting task
     event is streamed back to it over its own socket as one of the ``…Event`` subclasses
     below — a minimal mirror of the persisted ``TaskEvent``, so the caller never
-    needs GraphQL to read results. Delivery is best-effort (the ``task_caller_{caller_id}``
-    channel-layer group); on a brief disconnect events are missed and the caller
-    re-inquires on reconnect.
+    needs GraphQL to read results. A mirror is a command: kept by the backend until the
+    caller acknowledged it, and sent again after a reconnect.
 
     Correlation: ``task`` is the key the caller already learned from
-    ``AssignResponse``. ``event`` is the originating ``TaskEvent`` id (a stable
-    dedup handle) and ``seq`` its monotonic PK (an ordering / gap-detection key).
+    ``AssignResponse``. ``event`` is the originating ``TaskEvent`` id: a mirror seen twice (a
+    replay overlapping what arrived live) is the same event.
     """
 
     task: str = Field(
         description="The task this event belongs to (the caller's correlation key)."
     )
     event: str = Field(
-        description="The originating TaskEvent id — a stable dedup handle."
-    )
-    seq: int = Field(
-        description="The originating TaskEvent's monotonic PK — ordering / gap-detection key."
+        description="The originating TaskEvent id: what a repeated mirror is recognised by."
     )
 
 
@@ -1419,6 +1562,9 @@ ToAgentMessage = Union[
     Bounce,
     Kick,
     JournalAck,
+    JournalNack,
+    Inquire,
+    InquireResponse,
     AssignResponse,
     ProbeResponse,
     StateRevisionResponse,
@@ -1436,6 +1582,10 @@ FromAgentMessage = (
     | Yield
     | Register
     | HeartbeatEvent
+    | CommandAck
+    | JournalSkip
+    | InquiryAnswer
+    | InquireRequest
     | Resumed
     | Paused
     | Held

@@ -9,6 +9,7 @@ import hashlib
 import json
 
 import asyncio
+import dataclasses
 import contextlib
 import copy
 import logging
@@ -159,6 +160,9 @@ class NoCallerPostman:
         prompt: "AssignPrompt | None" = None,
         policy: "TaskPolicy | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
     ) -> "AsyncGenerator[TaskEventLike, None]":
         """Refuse the call.
 
@@ -179,6 +183,16 @@ class NoCallerPostman:
         exc_tb: "TracebackType | None",
     ) -> None:
         """Nothing to release."""
+
+
+@dataclasses.dataclass
+class _Reported:
+    """What a task under way last said of itself."""
+
+    status: "messages.TaskStatus" = messages.TaskStatus.RUNNING
+    at: float = 0.0
+    progress: int | None = None
+    message: str | None = None
 
 
 class BaseAgent(KoiledModel):
@@ -341,7 +355,6 @@ class BaseAgent(KoiledModel):
     session baseline are numbered and handed to the transport from here, in the
     order they were made (see ``docs/journal.md``)."""
     _patch_processor_task: asyncio.Task[None] | None = PrivateAttr(default=None)
-    _event_seq: int = PrivateAttr(default=0)
     _journal: Journal = PrivateAttr(default_factory=Journal)
     _task_gates: dict[str, TaskGate] = PrivateAttr(default_factory=dict)
     """Per task: once its end is reported, its reports and state changes are refused."""
@@ -353,6 +366,8 @@ class BaseAgent(KoiledModel):
     # Recently finished task ids (insertion-ordered, bounded): lets a redelivered Assign for
     # work that already ran be recognised after ``managed_assignments`` has forgotten it.
     _finished_tasks: dict[str, None] = PrivateAttr(default_factory=dict)
+    _task_reports: dict[str, "_Reported"] = PrivateAttr(default_factory=dict)
+    """Per task under way: where it stands and what it last said, for whoever asks about it."""
     global_revision: int = 0
     snapshot_interval: int = Field(
         default=60,
@@ -439,7 +454,12 @@ class BaseAgent(KoiledModel):
 
         Through the ordered path like every report, so a task's ``LOCK`` comes after
         what it reported before acquiring, and its ``UNLOCK`` after its end.
+
+        A probe's locks are not reported: a probe is ephemeral, the server keeps no
+        lock for it and refuses a frame of another kind that names one.
         """
+        if is_probe_task(message.task):
+            return
         try:
             await self._adispatch(message)
         except Exception:
@@ -648,7 +668,6 @@ class BaseAgent(KoiledModel):
                 op=patch.op,
                 path=patch.path,
                 value=shrunk_value,
-                old_value=None,
                 task_id=patch.correlation_id,
                 session_id=self.current_session,
             ),
@@ -691,7 +710,7 @@ class BaseAgent(KoiledModel):
         # An unknown drawer (already dropped, or shelved before a teardown) is dropped
         # all the same: the backend may still list it.
         self.shelve.pop(key, None)
-        await self._adispatch(messages.Unshelve(ref=key, drawer=key))
+        await self._adispatch(messages.Unshelve(drawer=key))
 
     async def _acreate_session(self) -> str:
         """Mint the identifier for this run, however the backend does that."""
@@ -785,12 +804,12 @@ class BaseAgent(KoiledModel):
         A task that has already ended records nothing more: its value is shelved by no
         task."""
         gate = self._task_gates.get(task) if task is not None else None
-        if gate is not None and gate.closed:
+        if (gate is not None and gate.closed) or is_probe_task(task):
+            # A probe is ephemeral too: the server takes no SHELVE naming one.
             task = None
         resource_id = uuid.uuid4().hex
         self.shelve[resource_id] = value
         return messages.Shelve(
-            ref=resource_id,
             identifier=str(identifier),
             resource_id=resource_id,
             label=label if label else str(value),
@@ -899,6 +918,8 @@ class BaseAgent(KoiledModel):
             ),
         ):
             await self._aprocess_provider_message(message)
+        elif isinstance(message, messages.Inquire):
+            await self._aanswer_inquiry(message)
         elif isinstance(message, messages.BlokRefused):
             await self._aprocess_blok_refused(message)
         elif isinstance(message, messages.Collect):
@@ -919,6 +940,9 @@ class BaseAgent(KoiledModel):
         in :meth:`_aafter_init`.
         """
         if isinstance(message, messages.Init):
+            if not self._is_current_init(message):
+                logger.info("Ignoring the Init of a connection that is gone")
+                return
             self._record_init(message)
             for diagnostic in message.diagnostics:
                 where = f" (at {diagnostic.path})" if diagnostic.path else ""
@@ -942,6 +966,73 @@ class BaseAgent(KoiledModel):
                 "Received a protocol error from the backend. This usually means "
                 f"the agent sent a message the backend could not process: {message.error}"
             )
+
+    def _is_current_init(self, message: messages.Init) -> bool:
+        """Whether ``Init`` answers the connection this agent is on now (always, in the
+        core: only a transport that reconnects can be answered late)."""
+        return True
+
+    def task_status(self, task: str) -> messages.TaskStatus:
+        """What this agent knows of a task, from memory: asking never touches the task.
+
+        ``UNKNOWN`` is a strong thing to say (the backend ends the task as lost on it), so
+        it is said last: for a task that is neither held for the app to start, nor under
+        way, nor one whose end this agent remembers reporting.
+        """
+        if task in self.managed_assignments:
+            gate = self._task_gates.get(task)
+            if gate is not None and gate.closed:
+                return messages.TaskStatus.ENDED  # its end is reported; the books follow
+            reported = self._task_reports.get(task)
+            return reported.status if reported is not None else messages.TaskStatus.WAITING
+        if any(
+            isinstance(held, messages.Assign) and held.task == task
+            for held in self._held_provider_messages
+        ):
+            return messages.TaskStatus.WAITING
+        if task in self._finished_tasks:
+            return messages.TaskStatus.ENDED
+        return messages.TaskStatus.UNKNOWN
+
+    async def _aanswer_inquiry(self, inquiry: messages.Inquire) -> None:
+        """Answer at once, straight to the transport: an answer is not a report, has no
+        position, and must not wait behind the reports that do."""
+        reported = self._task_reports.get(inquiry.task)
+        await self.transport.asend(
+            messages.InquiryAnswer(
+                task=inquiry.task,
+                status=self.task_status(inquiry.task),
+                request=inquiry.request,
+                step=self._journal.step_of(inquiry.task) or None,
+                reported_at=reported.at if reported is not None else None,
+                progress=reported.progress if reported is not None else None,
+                message=reported.message if reported is not None else None,
+            )
+        )
+
+    def _note_report(self, message: messages.FromAgentMessage) -> None:
+        """Keep what a task's report says of where the task stands, for an inquiry."""
+        task = getattr(message, "task", None)
+        if not isinstance(task, str) or not isinstance(message, messages.FromAgentEvent):
+            return
+        reported = self._task_reports.get(task)
+        if reported is None:
+            if not isinstance(message, messages.Started):
+                return  # nothing is kept for a task that has not started, or has ended
+            reported = self._task_reports[task] = _Reported()
+        reported.at = time.time()
+        if isinstance(message, messages.Paused):
+            reported.status = messages.TaskStatus.PAUSED
+        elif isinstance(message, messages.Held):
+            reported.status = messages.TaskStatus.HELD
+        elif isinstance(message, (messages.Started, messages.Resumed)):
+            reported.status = messages.TaskStatus.RUNNING
+        elif isinstance(message, messages.Progress):
+            if message.progress is not None:
+                reported.progress = message.progress
+            reported.message = message.message or reported.message
+        elif isinstance(message, messages.Log):
+            reported.message = message.message
 
     def _record_init(self, message: messages.Init) -> None:
         """Record what the runtime needs from ``Init`` (nothing in the core)."""
@@ -1122,6 +1213,11 @@ class BaseAgent(KoiledModel):
             )
             return
 
+        if isinstance(message, messages.Decide):
+            # The decision a held task waited for: it is at work again.
+            reported = self._task_reports.get(message.task)
+            if reported is not None and reported.status is messages.TaskStatus.HELD:
+                reported.status = messages.TaskStatus.RUNNING
         assignment = self.managed_assignments[message.task]
         actor = self.managed_actors[assignment.interface]
         await actor.apass(message)
@@ -1434,7 +1530,7 @@ class BaseAgent(KoiledModel):
 
         Task reports, lock changes and the session baseline all go through here, and
         state patches through :meth:`publish_patch`, into one queue. Its processor
-        numbers each message in the journal, stamps its ``seq``, and hands it to the
+        numbers each message in the journal and hands it to the
         transport (:meth:`_aemit`), so the order on the wire is the order things
         happened: a ``COMPLETED`` can no longer overtake its task's patches.
 
@@ -1450,6 +1546,7 @@ class BaseAgent(KoiledModel):
         Before the queue exists (before activation) and after teardown, messages go
         straight to the transport.
         """
+        self._note_report(message)
         gate = self._gate_of(message)
         if gate is not None:
             if isinstance(message, messages.TERMINAL_REPORTS):
@@ -1504,17 +1601,12 @@ class BaseAgent(KoiledModel):
     async def _aemit(self, message: messages.FromAgentMessage) -> None:
         """Number, record and hand on one message: the single ordered step.
 
-        Every agent→backend event gets a monotonic ``seq`` here, and numbered messages
-        their ``pos`` and (a task's) ``task_step``, under the journal's numbering, in
+        Numbered messages get their ``pos`` and (a task's) ``task_step``, under the journal's numbering, in
         the order they are handed on. A runtime whose backend confirms durability
         retains what it must re-send until then (:meth:`_retain_emitted`; rekuest's
         socket agent keeps every numbered frame until a ``JournalAck`` covers it).
         The journal decides what is numbered (a probe's reports are not).
         """
-        if isinstance(message, messages.FromAgentEvent):
-            self._event_seq += 1
-            # Messages are frozen, so produce a copy carrying the assigned seq.
-            message = message.model_copy(update={"seq": self._event_seq})
         entry = self._journal.append(message, self._action_key_for(message))
         if entry is not None and self.stamps_frames:
             message = message.model_copy(
@@ -1544,6 +1636,7 @@ class BaseAgent(KoiledModel):
             # PROGRESS/YIELD but never COMPLETED or ERROR.
             self.running_assignments.pop(message.task, None)
             self.managed_assignments.pop(message.task, None)
+            self._task_reports.pop(message.task, None)
             self._task_ended(message.task)
             self._finished_tasks[message.task] = None
             while len(self._finished_tasks) > _FINISHED_TASKS_REMEMBERED:

@@ -78,6 +78,9 @@ class Postman(Protocol):
         prompt: "AssignPrompt | None" = None,
         policy: "TaskPolicy | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
     ) -> AsyncGenerator[TaskEventLike, None]:
         """Originate a task and stream its events.
 
@@ -130,6 +133,19 @@ class Postman(Protocol):
                 FAILED with code ``STATE_PRECONDITION`` before anything ran. Both
                 transports carry it; the server refuses it for an agent that does not
                 say it tests them.
+            on_lost: What becomes of the task should its agent be lost while it runs:
+                ``"FAIL"`` (it ends lost), ``"RESUME"`` (a workflow goes on from what it
+                recorded) or ``"RESTART"`` (an action declared idempotent is run again
+                from the start). Left out, a workflow resumes and anything else ends
+                lost. The server refuses what the implementation did not declare.
+            max_resumes: How often the task may be sent again (resumed or restarted)
+                before it ends lost after all. Left out, the server's own limit applies;
+                ``0`` is "never", the same as ``on_lost="FAIL"``.
+            inquire_after: Seconds of silence from the task after which the call asks
+                its agent whether it is still on it, and again after every further such
+                silence. Asking changes nothing, with one exception: an agent that no
+                longer knows the task has lost it, and the call ends with
+                :class:`AgentLost`. ``None`` is the postman's default; ``0`` never asks.
 
         Raises:
             RootOnlyAssignError: By a root-only transport, if ``parent``,

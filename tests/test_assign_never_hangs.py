@@ -208,3 +208,35 @@ async def test_stream_ends_when_the_task_is_cancelled_or_interrupted(
 
     with pytest.raises(CriticalCallError):
         await asyncio.wait_for(consume(), timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_nobody_asked_for_is_reported(
+    agent: BaseAgent, transport: MemoryAgentTransport
+) -> None:
+    """A body that lets a cancellation of its own out (a future it awaited was cancelled) ends
+    its task without anyone having sent Cancel, so nobody else reports the end."""
+
+    async def aleaky(x: int) -> int:
+        """Await something that was cancelled."""
+        gone: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+        gone.cancel()
+        return await gone
+
+    _register(agent, aleaky)
+    transport.feed(_assign("task-1", "aleaky", x=1))
+    await _pump(agent, 1)
+    await _until(lambda: bool(transport.of_type(messages.Critical)))
+    assert "cancelled from inside" in transport.of_type(messages.Critical)[0].error
+
+
+@pytest.mark.asyncio
+async def test_a_probe_names_itself_on_no_lock_or_shelve_frame(
+    agent: BaseAgent, transport: MemoryAgentTransport
+) -> None:
+    """The server keeps nothing for a probe and closes the socket on a lock or shelve frame
+    naming one: none is sent."""
+    await agent.alock("stage", "p-1")
+    await agent.aunlock("stage", "p-1")
+    assert not transport.of_type(messages.Lock) and not transport.of_type(messages.Unlock)
+    assert agent._shelve_frame("@x/y", object(), "a value", None, "p-1").task is None

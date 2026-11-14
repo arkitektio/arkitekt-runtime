@@ -47,6 +47,12 @@ class HandshakeParams(BaseModel):
     honoured for participants that execute work; a non-executor never displaces its own
     other connections.
     """
+    commands_seen: int = Field(default=0)
+    """The highest command position this process has handled: the backend sends from the
+    one after. 0 for a process that has handled none."""
+    sessions: list[str] = Field(default_factory=list)
+    """The journal sessions the agent still holds unacknowledged frames of: the backend's
+    ``Init`` says how far it has each."""
     session_id: str | None = Field(default=None)
     """Per-process identifier, minted in memory by the agent at start-up and never
     persisted. Its volatility is the reclaim signal: reconnecting with the SAME

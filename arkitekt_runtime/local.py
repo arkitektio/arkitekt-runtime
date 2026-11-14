@@ -46,7 +46,7 @@ class MemoryAgentTransport(AgentTransport):
     """A queue-backed transport that records what the agent sends."""
 
     sent: list[messages.FromAgentMessage] = []
-    """Every outbound message, in order, including the ``seq`` the agent stamped."""
+    """Every outbound message, in order, as the agent stamped it."""
 
     acknowledge: bool = False
     """Answer the agent's registration itself, as a backend would with its ``Init``.

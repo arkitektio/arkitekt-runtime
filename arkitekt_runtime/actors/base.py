@@ -561,7 +561,23 @@ class Actor(BaseModel):
                 return
             await self.on_assign(assignment)
         except asyncio.CancelledError:
-            raise  # Cancel/Interrupt/teardown report their own terminal message
+            current = asyncio.current_task()
+            if current is None or current.cancelling():
+                raise  # Cancel/Interrupt/teardown report their own terminal message
+            # Nobody cancelled this task: the body let a cancellation of its own out
+            # (a future or a thread it awaited was cancelled). Without this the task
+            # would end here and the backend would never hear of it.
+            logger.error(
+                f"Assignment {assignment.task} on {assignment.interface} raised a "
+                "cancellation nobody asked for",
+                exc_info=True,
+            )
+            await self.asend(
+                message=messages.Critical(
+                    task=assignment.task,
+                    error="The task was cancelled from inside itself, not by a cancel request",
+                )
+            )
         except Exception as e:
             logger.critical(
                 f"Assignment {assignment.task} on {assignment.interface} failed "

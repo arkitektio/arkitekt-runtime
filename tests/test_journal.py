@@ -42,7 +42,6 @@ def _patch(rev: int, task: str | None, op: str = "replace", path: str = "/exposu
         op=op,
         path=path,
         value=rev + 1 if value is None else value,
-        old_value=None,
         task_id=task,
     )
 
@@ -323,10 +322,9 @@ def test_the_gate_does_not_change_what_a_mutation_equals() -> None:
 
 
 def test_unstamped_frames_are_unchanged() -> None:
-    progress = messages.Progress(task="t", progress=None, message=None, seq=3)
+    progress = messages.Progress(task="t", progress=None, message=None)
     assert json.loads(progress.model_dump_json()) == {
         "id": progress.id,
-        "seq": 3,
         "type": "PROGRESS",
         "task": "t",
         "progress": None,
@@ -343,7 +341,6 @@ def test_unstamped_frames_are_unchanged() -> None:
         "op",
         "path",
         "value",
-        "old_value",
         "task_id",
     }
     stamped = progress.model_copy(update={"pos": 4, "journal_session": "s", "agent_ts": 1.5})
@@ -359,7 +356,7 @@ def test_init_and_journal_ack_parse() -> None:
     from pydantic import TypeAdapter
 
     adapter: TypeAdapter[messages.ToAgentMessage] = TypeAdapter(messages.ToAgentMessage)
-    ack = adapter.validate_python({"type": "JOURNAL_ACK", "journal_session": "s", "pos": 3})
-    assert isinstance(ack, messages.JournalAck) and ack.pos == 3
+    ack = adapter.validate_python({"type": "JOURNAL_ACK", "journal_session": "s", "through": 3})
+    assert isinstance(ack, messages.JournalAck) and ack.through == 3
     init = adapter.validate_python({"type": "INIT", "agent": "a", "journal": True})
     assert isinstance(init, messages.Init)

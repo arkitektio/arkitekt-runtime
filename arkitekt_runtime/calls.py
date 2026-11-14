@@ -32,6 +32,7 @@ from arkitekt_spec.declare.errors import (
     ErrorCallError,
     StatePreconditionFailed,
 )
+from arkitekt_spec.declare.definition.policy import CallPolicy
 from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
 from arkitekt_runtime.messages import Assign, JSONSerializable
 from arkitekt_runtime.postmans.types import Postman
@@ -79,6 +80,9 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
     state_requires: "list[StateRequirement] | None" = None,
+    on_lost: str | None = None,
+    max_resumes: int | None = None,
+    inquire_after: float | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the YIELD payloads of a task, returning on DONE.
 
@@ -104,6 +108,12 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         asked["policy"] = policy
     if state_requires:
         asked["state_requires"] = state_requires
+    if on_lost is not None:
+        asked["on_lost"] = on_lost
+    if max_resumes is not None:
+        asked["max_resumes"] = max_resumes
+    if inquire_after is not None:
+        asked["inquire_after"] = inquire_after
     async for i in postman.aassign(
         args=args or {},
         capture=capture,
@@ -168,6 +178,7 @@ async def acall_dependency_raw(
     hooks: list[HookInput] | None = None,
     parent: Assign | None = None,
     capture: bool = False,
+    call_policy: "CallPolicy | None" = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload
     """Call a method on a dependency with already serialized arguments.
 
@@ -191,6 +202,9 @@ async def acall_dependency_raw(
         parent=_resolve_parent(parent),
         dependency=dependency_key,
         method=method,
+        on_lost=call_policy.on_lost if call_policy else None,
+        max_resumes=call_policy.max_resumes if call_policy else None,
+        inquire_after=call_policy.inquire_after if call_policy else None,
     ):
         returns = r
 
@@ -208,6 +222,7 @@ async def acall_dependency(
     hooks: list[HookInput] | None = None,
     parent: Assign | None = None,
     capture: bool = False,
+    call_policy: "CallPolicy | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the method returns, expanded
     """Call a method on a dependency and return expanded Python values."""
@@ -225,6 +240,7 @@ async def acall_dependency(
         parent=parent,
         capture=capture,
         postman=postman,
+        call_policy=call_policy,
     )
 
     returns = await aexpand_actor_returns(
@@ -255,6 +271,7 @@ async def aiterate_dependency(
     hooks: list[HookInput] | None = None,
     parent: Assign | None = None,
     capture: bool = False,
+    call_policy: "CallPolicy | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator method of a dependency, each yield expanded."""
@@ -270,6 +287,9 @@ async def aiterate_dependency(
         parent=_resolve_parent(parent),
         dependency=dependency_key,
         method=method,
+        on_lost=call_policy.on_lost if call_policy else None,
+        max_resumes=call_policy.max_resumes if call_policy else None,
+        inquire_after=call_policy.inquire_after if call_policy else None,
     ):
         returns = await aexpand_actor_returns(
             definition, raw_returns, structure_registry

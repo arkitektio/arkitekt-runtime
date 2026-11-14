@@ -454,6 +454,9 @@ class Task:
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
@@ -496,6 +499,9 @@ class Task:
             call_key=call_key,
             prompt=prompt,
             state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
             **kwargs,
         )
 
@@ -521,6 +527,9 @@ class Task:
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "AsyncGenerator[Any, None]":
         """Stream a generator action's yields as a child of this task."""
@@ -541,6 +550,9 @@ class Task:
             call_key=call_key,
             prompt=prompt,
             state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
             **kwargs,
         ):
             yield value
@@ -569,6 +581,9 @@ class Task:
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
     ) -> Any:  # noqa: ANN401 -- the raw backend payload
         """Call with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _acall_raw
@@ -588,6 +603,9 @@ class Task:
             call_key=call_key,
             prompt=prompt,
             state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
         )
 
     async def aiterate_raw(
@@ -604,6 +622,9 @@ class Task:
         call_key: str | None = None,
         prompt: "AssignPrompt | None" = None,
         state_requires: "list[StateRequirement] | None" = None,
+        on_lost: str | None = None,
+        max_resumes: int | None = None,
+        inquire_after: float | None = None,
     ) -> "AsyncGenerator[Any, None]":
         """Stream with already-serialized arguments, as a child of this task."""
         from arkitekt_runtime.invoke import _aiterate_raw
@@ -623,6 +644,9 @@ class Task:
             call_key=call_key,
             prompt=prompt,
             state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
         ):
             yield value
 

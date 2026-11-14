@@ -90,6 +90,9 @@ async def _aiterate_raw(
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
     state_requires: "list[StateRequirement] | None" = None,
+    on_lost: str | None = None,
+    max_resumes: int | None = None,
+    inquire_after: float | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the raw YIELD payloads of a remote call.
 
@@ -111,6 +114,9 @@ async def _aiterate_raw(
         prompt=prompt,
         policy=policy,
         state_requires=state_requires,
+        on_lost=on_lost,
+        max_resumes=max_resumes,
+        inquire_after=inquire_after,
     ):
         yield returns
 
@@ -131,6 +137,9 @@ async def _acall_raw(
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
     state_requires: "list[StateRequirement] | None" = None,
+    on_lost: str | None = None,
+    max_resumes: int | None = None,
+    inquire_after: float | None = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload, whatever the action returned
     """Run a call with already-serialized arguments and return the final YIELD payload.
 
@@ -154,6 +163,9 @@ async def _acall_raw(
         prompt=prompt,
         policy=policy,
         state_requires=state_requires,
+        on_lost=on_lost,
+        max_resumes=max_resumes,
+        inquire_after=inquire_after,
     ):
         returns = r
     return returns
@@ -174,6 +186,9 @@ async def _acall(
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
     state_requires: "list[StateRequirement] | None" = None,
+    on_lost: str | None = None,
+    max_resumes: int | None = None,
+    inquire_after: float | None = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
     """Call an action and return its expanded result.
@@ -203,6 +218,9 @@ async def _acall(
         prompt=prompt,
         policy=policy,
         state_requires=state_requires,
+        on_lost=on_lost,
+        max_resumes=max_resumes,
+        inquire_after=inquire_after,
     )
     returns = await aexpand_returns(
         action, raw_returns, structure_registry=structure_registry
@@ -227,6 +245,9 @@ async def _aiterate(
     prompt: "AssignPrompt | None" = None,
     policy: "TaskPolicy | None" = None,
     state_requires: "list[StateRequirement] | None" = None,
+    on_lost: str | None = None,
+    max_resumes: int | None = None,
+    inquire_after: float | None = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator action's yields, each one expanded."""
@@ -250,6 +271,9 @@ async def _aiterate(
         prompt=prompt,
         policy=policy,
         state_requires=state_requires,
+        on_lost=on_lost,
+        max_resumes=max_resumes,
+        inquire_after=inquire_after,
     ):
         returns = await aexpand_returns(
             action, raw_returns, structure_registry=structure_registry

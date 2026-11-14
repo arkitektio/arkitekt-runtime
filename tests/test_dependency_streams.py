@@ -77,3 +77,25 @@ async def test_acall_on_a_stream_keeps_only_the_last_yield() -> None:
     words = _proxy(Streams.stream_words, WordsPostman())
 
     assert await words.acall("a b c") == "testo"
+
+
+async def test_a_call_carries_the_policy_its_protocol_method_declared() -> None:
+    """``@policy`` on a protocol method is how the app wants its calls of it treated: every
+    call through the dependency carries it, and a method that declares none carries nothing."""
+    from arkitekt_spec.declare.definition.policy import policy
+
+    class Careful(Protocol):
+        @policy(inquire_after="5s", on_lost="FAIL", max_resumes=0)
+        async def count(self, to: int) -> AsyncIterator[str]:
+            """Count"""
+            ...
+
+    postman = WordsPostman()
+    assert [word async for word in _proxy(Careful.count, postman)(to=3)] == ["hello", "from", "testo"]
+    assert await _proxy(Careful.count, postman).acall(to=3) == "testo"
+    for call in postman.calls:
+        assert (call["inquire_after"], call["on_lost"], call["max_resumes"]) == (5.0, "FAIL", 0)
+
+    plain = WordsPostman()
+    assert await _proxy(Streams.count, plain).acall(to=3) == "testo"
+    assert not {"inquire_after", "on_lost", "max_resumes"} & set(plain.calls[0])
