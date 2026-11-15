@@ -831,7 +831,10 @@ class Journal:
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 — keep numbering; report the loss
+                # Not durable: whoever waits for these entries to be persisted is not told
+                # they are (the wait ends by its own bound).
                 logger.warning("Could not persist the journal", exc_info=True)
+                continue
             last = batch[-1]
             self._durable = (last.session_id, last.pos)
             condition = self._durable_changed

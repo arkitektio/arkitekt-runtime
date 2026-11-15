@@ -94,9 +94,8 @@ logger = logging.getLogger(__name__)
 #: How long expanding one persisted state may take (its structures may hit a server).
 PREVIOUS_STATE_TIMEOUT = 10.0
 
-# How many finished task ids an agent remembers, to recognise a redelivered Assign for work
-# that already ran. Redeliveries arrive within the backend's pickup deadline (~a minute), so
-# this only has to cover the tasks that can finish in that time.
+# How many finished task ids an agent remembers: to recognise an Assign for work that
+# already ran, and to answer ``ENDED`` rather than ``UNKNOWN`` when asked about it.
 _FINISHED_TASKS_REMEMBERED = 2048
 
 #: What the agent's ordered queue carries.
@@ -1116,9 +1115,9 @@ class BaseAgent(KoiledModel):
         propagating it tears the whole agent down — abandoning every other assignment it is
         running over a problem that has already been reported.
 
-        Assigns are delivered at-least-once: the backend redelivers one it got no report for
-        (its pickup watchdog), and recovers frames a dying connection had popped but not acked.
-        So the same task id may arrive twice, and running it twice is never what anyone meant.
+        The same task id may arrive twice (a backend that sends a command again after a
+        dropped connection; a HookAgent's pickup watchdog), and running it twice is never
+        what anyone meant.
         """
         if await self._ais_duplicate_assign(message):
             return
@@ -1127,6 +1126,9 @@ class BaseAgent(KoiledModel):
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()
+        # Its own from here on, before anything is awaited: asked about it meanwhile, this
+        # agent must not say it does not know the task (the backend would end it as lost).
+        self.managed_assignments[message.task] = message
         await self._anotify_task(
             TaskEvent(
                 task_id=message.task,
@@ -1201,15 +1203,16 @@ class BaseAgent(KoiledModel):
     ) -> None:
         """Forward a lifecycle control message to the actor running that task."""
         if message.task not in self.managed_assignments:
+            # Nothing is said about a task this agent does not have. It has ended and said
+            # so, or it was a process before this one that had it (the backend ended that
+            # work when this process registered), or the backend will learn by asking
+            # (``Inquire`` is answered ``UNKNOWN``). A ``Critical`` from here would be this
+            # agent ending a task it knows nothing of: one given anew, perhaps, whose
+            # assign is the next command in line.
             logger.warning(
-                "Received unassignation for a provision that is not running. "
-                f"Received: {message.task}"
-            )
-            await self._adispatch(
-                messages.Critical(
-                    task=message.task,
-                    error="Actors is no longer running and not managed. Probablry there was a restart",
-                )
+                "Ignoring %s for task %s, which this agent does not have",
+                type(message).__name__,
+                message.task,
             )
             return
 
@@ -1341,6 +1344,27 @@ class BaseAgent(KoiledModel):
         if dropped:
             logger.warning("%d queued report(s) were not sent before teardown", dropped)
 
+    leaves_stopped_tasks_to_backend: ClassVar[bool] = False
+    """Whether the tasks this agent stops when it is torn down are left unreported.
+
+    ``False`` here: an agent with nobody watching over it says ``Critical``, or whoever
+    waits for the task would never hear of its end. An agent whose backend notices that the
+    process is gone, and then does with each task what its caller asked for when it was
+    lost (rekuest's socket agent), says nothing: a ``Critical`` from a process that is
+    merely being restarted would end a workflow that was to go on in the next one."""
+
+    def abandon_task(self, task: str) -> None:
+        """Stop keeping a task that ends here without a report: its gate closes, so nothing
+        more is recorded for it, and it is no longer one this agent manages (assigned anew,
+        it is taken as new)."""
+        gate = self._task_gates.get(task)
+        if gate is not None:
+            gate.close()
+        self.running_assignments.pop(task, None)
+        self.managed_assignments.pop(task, None)
+        self._task_reports.pop(task, None)
+        self._task_ended(task)
+
     async def _acancel_actors(self) -> None:
         """Cancel every managed actor's in-flight work, reporting each cancellation.
 
@@ -1349,6 +1373,11 @@ class BaseAgent(KoiledModel):
         backend was never told. ``Actor.acancel`` already did the right thing; it just had
         no caller.
         """
+        if self.leaves_stopped_tasks_to_backend:
+            # Closed first: the ``Critical`` each actor says as it stops its tasks is then
+            # dropped at the task's gate, with whatever the unwinding still reports.
+            for task in list(self.managed_assignments):
+                self.abandon_task(task)
         for interface, actor in list(self.managed_actors.items()):
             try:
                 await asyncio.wait_for(

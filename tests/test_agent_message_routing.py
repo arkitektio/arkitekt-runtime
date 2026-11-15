@@ -69,8 +69,9 @@ async def test_interrupt_for_an_unknown_task_does_not_kill_the_agent(
 
     await _pump(agent, 1)
 
-    # It degrades exactly as Cancel does for an unknown task: a Critical, not a crash.
-    assert _errors(transport), "an unknown task should be reported, not raised"
+    # Like a Cancel for an unknown task: neither a crash nor a verdict. This agent knows
+    # nothing of the task, so it ends nothing; the backend learns by asking.
+    assert not _errors(transport), "nothing is said about a task this agent does not have"
 
 
 @pytest.mark.asyncio
@@ -219,6 +220,60 @@ async def test_teardown_cancels_in_flight_actor_work(
     assert _errors(transport), (
         "the backend must be told the assignment was cancelled by the application"
     )
+
+
+class _WatchedAgent(BaseAgent):
+    """An agent whose backend notices that it is gone and decides what becomes of its tasks."""
+
+    leaves_stopped_tasks_to_backend = True
+
+
+@pytest.mark.asyncio
+async def test_teardown_says_nothing_for_tasks_a_backend_watches_over(
+    transport: MemoryAgentTransport,
+) -> None:
+    """A process that is merely restarted must not end a task its backend would carry on.
+
+    Such an agent stops its work without a word: its backend finds the process gone and
+    does with each task what its caller asked for (a workflow goes on in the next one).
+    A ``Critical`` from here would end the task first.
+    """
+    agent = _WatchedAgent(name="watched", transport=transport, app_registry=AppRegistry())
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocker(x: int) -> int:
+        """Run until cancelled, recording that it was."""
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return x
+
+    agent.app_registry.register(blocker)
+    agent.collect_from_registry()
+    transport.feed(
+        messages.Assign(
+            task="task-1",
+            interface="blocker",
+            args={"x": 1},
+            implementation="impl-1",
+            action="action-1",
+            reference="ref-1",
+            user="user-1",
+            org="org-1",
+        )
+    )
+    await _pump(agent, 1)
+    await asyncio.wait_for(started.wait(), timeout=2.0)
+
+    await agent.atear_down()
+
+    assert cancelled.is_set(), "the work is stopped all the same"
+    assert not _errors(transport), "and nothing is said of how it ended"
+    assert "task-1" not in agent.managed_assignments
 
 
 @pytest.mark.asyncio
