@@ -7,7 +7,6 @@ key) or dynamic (a blok made at run time, which only an action declaring ``dynam
 """
 
 import asyncio
-import json
 from typing import Annotated, Any, NamedTuple, Protocol
 
 from arkitekt_runtime import messages
@@ -15,9 +14,6 @@ from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
 from arkitekt_spec.actions import (
     BlokDemoInput,
-    BlokLocalInput,
-    BlokQueryInput,
-    BlokSubscriptionInput,
     PortKind,
     ReturnPortInput,
 )
@@ -29,13 +25,13 @@ from arkitekt_spec.declare.task import Task, TaskBlok
 
 from .test_workflow_replay import _agent, _assign, _drive, _returned
 
-PICKER = """<Html>
+PICKER = """<Blok kind="task" context="panel">
   <Card>
     <foreach items={args.images} let="img" key={img.object}>
       <Button onClick={task.answer(values: {image: img})}>Pick</Button>
     </foreach>
   </Card>
-</Html>"""
+</Blok>"""
 
 IMAGES = [{"__identifier": "@mikro/image", "object": "7"}, {"__identifier": "@mikro/image", "object": "8"}]
 IMAGE = [ReturnPortInput(key="image", kind=PortKind.STRUCTURE, identifier="@mikro/image", nullable=False)]
@@ -70,9 +66,9 @@ class Picked(NamedTuple):
     count: int
 
 
-CONFIRM = """<Html><Card><CardTitle text={args.question} />
+CONFIRM = """<Blok kind="task" context="panel"><Card><CardTitle text={args.question} />
   <Button label="Go" onClick={task.answer(values: {name: args.question, count: 2})} />
-</Card></Html>"""
+</Card></Blok>"""
 
 
 class Asks(Protocol):
@@ -81,12 +77,12 @@ class Asks(Protocol):
         """Pick one."""
         ...
 
-    @ask("<Html><Button label=\"Ok\" onClick={task.answer(values: {ok: true})} /></Html>")
+    @ask('<Blok kind="task" context="panel"><Button label=\"Ok\" onClick={task.answer(values: {ok: true})} /></Blok>')
     def ok(self) -> Annotated[bool, Key("ok")]:
         """Go on?"""
         ...
 
-    @inform("<Html><Card><CardTitle text={args.done} /></Card></Html>")
+    @inform('<Blok kind="task" context="panel"><Card><CardTitle text={args.done} /></Card></Blok>')
     def progress(self, done: int) -> None:
         """Halfway."""
         ...
@@ -114,7 +110,7 @@ def _declared_agent() -> tuple[BaseAgent, MemoryAgentTransport]:
 def shows_dynamically(task: Task) -> str:
     """Shows a blok made now and goes on."""
     try:
-        task.dynamic_inform(TaskBlok(source="<Html><Text text={args.done} /></Html>", name="Halfway"), args={"done": 5})
+        task.dynamic_inform(TaskBlok(source='<Blok kind="task" context="panel"><Text text={args.done} /></Blok>', name="Halfway"), args={"done": 5})
     except NotDeclaredError:
         return "not declared"
     return "went on"
@@ -249,7 +245,7 @@ async def test_a_declared_inform_shows_by_key_and_the_task_goes_on() -> None:
 async def test_a_dynamic_inform_shows_its_blok() -> None:
     agent, transport = _informing_agent(dynamic=True)
     _, inform = await _until(agent, transport, "shows_dynamically", messages.Inform)
-    assert (inform.message, inform.blok.source, inform.blok.args) == ("Halfway", "<Html><Text text={args.done} /></Html>", {"done": 5})
+    assert (inform.message, inform.blok.source, inform.blok.args) == ("Halfway", '<Blok kind="task" context="panel"><Text text={args.done} /></Blok>', {"done": 5})
     assert await _returned(transport) == "went on"
 
 
@@ -264,45 +260,20 @@ async def test_a_dynamic_inform_needs_dynamic_informs() -> None:
 
 
 def test_a_task_blok_travels_under_its_own_names() -> None:
-    """The blok goes on the wire as the spec names its fields (``catalogs``, ``module``,
-    ``locals``, ``demo``, ``queries``, ``subscriptions``) and comes back the same."""
-    blok = TaskBlok(
-        source=PICKER,
-        vocab=2,
-        catalogs=["ui@1"],
-        module="orkestrator",
-        demo=BlokDemoInput(args={"images": IMAGES}),
-        locals=[BlokLocalInput(key="note", kind=PortKind.STRING, default="", persist=True)],
-        queries=[BlokQueryInput(key="positions", service="mikro", document="query Positions { positions { id } }", more="positions")],
-        subscriptions=[BlokSubscriptionInput(key="live", service="mikro", document="subscription Live { live { id } }", keep=3, history="positions")],
+    """The blok goes on the wire as the spec names its fields; its locals, queries and
+    subscriptions are nodes of its source, so they travel in it, and it comes back the same."""
+    source = (
+        '<Blok kind="task" context="panel"><local name="note" default="" persist />'
+        '<query name="positions" service="mikro" document="query Positions { positions { id } }" more="positions" />'
+        '<Card><Input bind={note} /></Card></Blok>'
     )
+    blok = TaskBlok(source=source, vocab=2, catalog="https://arkitekt.live/catalogs/orkestrator/v1", demo=BlokDemoInput(args={"images": IMAGES}))
     inform = messages.Inform(task="42", message="Pick one", blok=blok)
 
     wire = inform.model_dump(mode="json")["blok"]
 
-    assert (wire["vocab"], wire["catalogs"], wire["module"]) == (2, ["ui@1"], "orkestrator")
+    assert (wire["vocab"], wire["catalog"], wire["source"]) == (2, "https://arkitekt.live/catalogs/orkestrator/v1", source)
     assert wire["demo"]["args"] == {"images": IMAGES}
-    assert "catalog" not in wire and "demo_state" not in wire
-    assert [(local["key"], local["kind"], local["persist"]) for local in wire["locals"]] == [("note", "STRING", True)]
-    assert wire["queries"][0]["more"] == "positions"
-    assert (wire["subscriptions"][0]["keep"], wire["subscriptions"][0]["history"]) == (3, "positions")
+    assert not {"locals", "queries", "subscriptions"} & set(wire)
     assert messages.Inform.model_validate(inform.model_dump(mode="json")).blok == blok
-    held = messages.Held(task="42", blok=blok).model_dump(mode="json")["blok"]
-    assert held["module"] == "orkestrator"
     assert messages.Held.model_validate(messages.Held(task="42", blok=blok).model_dump(mode="json")).blok == blok
-
-
-def test_a_local_without_kind_goes_without_one() -> None:
-    """The server infers a left-out kind and keeps a given one, ANY included: the spec's ANY
-    default must not reach the wire, while a kind given stays."""
-    blok = TaskBlok(
-        source="<Html><Card><Input bind={note} /><Switch bind={on} /></Card></Html>",
-        vocab=2,
-        locals=[BlokLocalInput(key="note"), BlokLocalInput(key="on", kind="ANY")],
-    )
-
-    for message in (messages.Inform(task="42", blok=blok), messages.Held(task="42", blok=blok)):
-        wire = json.loads(message.model_dump_json())["blok"]
-        assert wire["locals"][0]["key"] == "note" and "kind" not in wire["locals"][0]
-        assert wire["locals"][1]["kind"] == "ANY"
-    assert messages.Inform.model_validate(messages.Inform(task="42", blok=blok).model_dump(mode="json")).blok == blok
