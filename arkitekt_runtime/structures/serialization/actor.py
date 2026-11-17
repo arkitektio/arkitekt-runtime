@@ -27,6 +27,7 @@ from arkitekt_spec.actions import (
     ReturnPortInput,
 )
 from arkitekt_runtime.constants import UNSET
+from arkitekt_runtime.state.observable import unwrapped
 from arkitekt_spec.scalars import validate_identifier
 from arkitekt_spec.declare.structures.errors import (
     StructureRegistryError,
@@ -576,6 +577,7 @@ async def _shrink_union(
 async def _shrink_dict(
     port: SerializablePort, value: Any, ctx: SerializationContext
 ) -> JSONSerializable:  # noqa: ANN401
+    value = unwrapped(value)  # a state's dict, returned as its view shows it
     if not isinstance(value, dict):
         raise _shrink_error(
             port,
@@ -600,6 +602,7 @@ async def _shrink_dict(
 async def _shrink_list(
     port: SerializablePort, value: Any, ctx: SerializationContext
 ) -> JSONSerializable:  # noqa: ANN401
+    value = unwrapped(value)  # a state's list, returned as its view shows it
     if not isinstance(value, list):
         raise _shrink_error(
             port,

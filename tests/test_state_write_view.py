@@ -10,7 +10,13 @@ import threading
 
 
 from arkitekt_spec.actions import StateDefinitionInput
-from arkitekt_runtime.state.observable import Mutation, StateConfig, adopt, make_evented
+from arkitekt_runtime.state.observable import (
+    EventedDict,
+    Mutation,
+    StateConfig,
+    adopt,
+    make_evented,
+)
 from arkitekt_runtime.state.write import write_view
 
 
@@ -19,6 +25,7 @@ class Board:
     count: int = 0
     items: list = dataclasses.field(default_factory=list)
     meta: dict = dataclasses.field(default_factory=dict)
+    other: dict = dataclasses.field(default_factory=dict)
 
 
 class Recorder:
@@ -52,6 +59,25 @@ def test_changes_through_a_view_carry_the_task_and_stay_the_state_type() -> None
         ("replace", "/count", "t1"),
         ("add", "/items/0", "t1"),
         ("add", "/meta/k", "t1"),
+    ]
+
+
+def test_one_field_assigned_to_another_stores_a_copy_not_the_view() -> None:
+    """``state.a = state.b`` reads ``b`` as the view's wrapper: what is stored is a dict
+    of ``a``'s own, which the next read and the next patch find where they expect it."""
+    state, recorder = board(), Recorder()
+    adopt(state, recorder)
+    view = write_view(state, Mutation(correlation_id="t1"))
+    view.meta["k"] = "v"
+
+    view.other = view.meta
+    view.other["later"] = 1
+
+    assert type(state.other) is EventedDict and state.other is not state.meta
+    assert (dict(state.other), dict(state.meta)) == ({"k": "v", "later": 1}, {"k": "v"})
+    assert recorder.patches[1:] == [
+        ("replace", "/other", "t1"),
+        ("add", "/other/later", "t1"),
     ]
 
 

@@ -21,6 +21,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar
 from collections.abc import Iterator
 
+from arkitekt_runtime.state.observable import ContainerView
+
 __all__ = ["ReadOnlyStateError", "read_only_view"]
 
 T = TypeVar("T")
@@ -37,14 +39,14 @@ def _refuse(state_name: str, detail: str) -> "ReadOnlyStateError":
     )
 
 
-class _ReadOnlyContainer:
+class _ReadOnlyContainer(ContainerView):
     """Shared machinery for live, non-mutating container views.
 
     Subclasses set ``_mutators`` (method names that would mutate the target) and
     ``_kind_name`` (used in error messages) and add the ABC they present as.
     """
 
-    __slots__ = ("_target", "_state_name")
+    __slots__ = ("_state_name",)
 
     _mutators: frozenset[str] = frozenset()
     _kind_name: str = "container"

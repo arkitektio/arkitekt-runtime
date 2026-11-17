@@ -19,7 +19,12 @@ import weakref
 from collections.abc import Iterator, MutableMapping, MutableSequence
 from typing import Any, TypeVar
 
-from arkitekt_runtime.state.observable import Mutation, StateConfig, config_of
+from arkitekt_runtime.state.observable import (
+    ContainerView,
+    Mutation,
+    StateConfig,
+    config_of,
+)
 
 __all__ = ["write_view"]
 
@@ -31,10 +36,10 @@ _LIST_MUTATORS = frozenset(
 _DICT_MUTATORS = frozenset({"update", "setdefault", "pop", "popitem", "clear"})
 
 
-class _WriteContainer:
+class _WriteContainer(ContainerView):
     """A live container view whose changes count as one task's mutation."""
 
-    __slots__ = ("_target", "_mutation", "_config")
+    __slots__ = ("_mutation", "_config")
 
     _mutators: frozenset[str] = frozenset()
 
