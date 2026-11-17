@@ -40,6 +40,17 @@ def _make_path(base: str, key: str | int) -> str:
 # --- Configuration ---
 
 
+@dataclasses.dataclass
+class Marks:
+    """What is said of a task's changes while it runs, and changes as it goes on."""
+
+    lifecycle: str | None = None
+    """Set by the runtime while the task is not in its ordinary course (``CLEANUP`` once
+    it is being stopped)."""
+    qualifiers: tuple[str, ...] = ()
+    """What the app says its changes are for right now (``task.qualified``)."""
+
+
 @dataclasses.dataclass(frozen=True)
 class Mutation:
     """Who is changing a state: the task, for the patches' correlation.
@@ -56,6 +67,8 @@ class Mutation:
 
     correlation_id: str | None = None
     gate: TaskGate | None = dataclasses.field(default=None, compare=False)
+    marks: Marks | None = dataclasses.field(default=None, compare=False)
+    """The task's marks, which its patches carry as they are when each is made."""
 
 
 OUTSIDE_TASK = Mutation()
@@ -123,6 +136,23 @@ def config_of(obj: Any) -> StateConfig | None:  # noqa: ANN401
     return getattr(obj, "_event_config", None) or getattr(obj, "_config", None)
 
 
+class ContainerView:
+    """What a state's view hands out in place of a list or a dict it holds.
+
+    A view is how a container is *reached*, never what a state holds: wherever one is
+    stored or sent, it is the container it shows that is (see :func:`unwrapped`).
+    """
+
+    __slots__ = ("_target",)
+
+
+def unwrapped(value: Any) -> Any:  # noqa: ANN401
+    """The container a view shows, or ``value`` itself when it is no view."""
+    while isinstance(value, ContainerView):
+        value = object.__getattribute__(value, "_target")
+    return value
+
+
 def evented(obj: Any, declaration: StateDeclaration) -> Any:  # noqa: ANN401
     """Make ``obj`` an evented instance of the declared state, with a config of its own.
 
@@ -148,7 +178,11 @@ def _publish_patch(config: StateConfig, patch: Patch) -> None:
     It is stamped with the task making the change, which is the mutation in
     progress (a task's write view), not something looked up.
     """
-    patch.correlation_id = config.mutation.correlation_id
+    mutation = config.mutation
+    patch.correlation_id = mutation.correlation_id
+    if mutation.marks is not None:
+        patch.lifecycle = mutation.marks.lifecycle
+        patch.qualifiers = mutation.marks.qualifiers
     if config.publisher is not None:
         config.publisher.publish_patch(config.state_name, patch)
 
@@ -656,6 +690,9 @@ def make_evented(
     """
     Recursively converts Dataclasses, Dicts, and Lists into event-emitting objects.
     """
+    # A container read through a view (``state.a = state.b``) is stored as a copy of
+    # the container it shows, at its own path: never the view, and never an alias.
+    obj = unwrapped(obj)
 
     # CASE A: Dictionary
     if isinstance(obj, dict):

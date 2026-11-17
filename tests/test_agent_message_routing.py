@@ -75,6 +75,54 @@ async def test_interrupt_for_an_unknown_task_does_not_kill_the_agent(
 
 
 @pytest.mark.asyncio
+async def test_a_cancelled_task_unwinds_before_its_end_is_reported(
+    agent: BaseAgent, transport: MemoryAgentTransport
+) -> None:
+    """What a task does on its way out (a ``finally`` putting things back) is still its
+    own: it is recorded, and before the end. Reported first, the end closed the task
+    and its cleanup was refused."""
+    from arkitekt_runtime.task import Task
+
+    started = asyncio.Event()
+
+    async def atidy(x: int, task: Task) -> int:
+        """Block until cancelled, then say so."""
+        try:
+            started.set()
+            await asyncio.sleep(60)
+        finally:
+            await task.aprogress(99, "put back")
+        return x
+
+    agent.app_registry.register(atidy)
+    agent.collect_from_registry()
+    transport.feed(
+        messages.Assign(
+            task="task-1",
+            interface="atidy",
+            args={"x": 1},
+            implementation="impl-1",
+            action="action-1",
+            reference="ref-1",
+            user="user-1",
+            org="org-1",
+        )
+    )
+    await _pump(agent, 1)
+    await asyncio.wait_for(started.wait(), timeout=2.0)
+
+    transport.feed(messages.Cancel(task="task-1"))
+    await _pump(agent, 1)
+
+    said = [
+        m.message if isinstance(m, messages.Progress) else type(m).__name__
+        for m in transport.sent
+        if isinstance(m, (messages.Progress, messages.Cancelled))
+    ]
+    assert said[-2:] == ["put back", "Cancelled"], said
+
+
+@pytest.mark.asyncio
 async def test_interrupt_reaches_the_actor_and_reports_interrupted(
     agent: BaseAgent, transport: MemoryAgentTransport
 ) -> None:

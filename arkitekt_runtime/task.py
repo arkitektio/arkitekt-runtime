@@ -262,6 +262,27 @@ class Task:
         unkoil(self._aenter_guard, state, paths)
         yield
 
+    @contextlib.contextmanager
+    def qualified(self, *qualifiers: str) -> "Iterator[None]":
+        """Say what the state changes made in the block are for.
+
+        Every patch the task writes inside carries ``qualifiers``, added to those of an
+        enclosing block. The names are the app's own::
+
+            with task.qualified("homing"):
+                state.position = 0
+        """
+        marks = self._helper.actor.task_mutation(self.assignment).marks
+        if marks is None:
+            yield
+            return
+        previous = marks.qualifiers
+        marks.qualifiers = (*previous, *(q for q in qualifiers if q not in previous))
+        try:
+            yield
+        finally:
+            marks.qualifiers = previous
+
     async def _aenter_guard(self, state: object, paths: "tuple[str, ...]") -> None:
         if not isinstance(state, StateRef):
             raise TypeError(

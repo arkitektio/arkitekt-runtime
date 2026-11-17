@@ -23,7 +23,7 @@ from typing import (
     ClassVar,
     Self,
 )
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Iterator, Sequence
 import janus
 import jsonpatch  # type: ignore[import-untyped]
 from pydantic import ConfigDict, Field, PrivateAttr
@@ -81,7 +81,7 @@ from arkitekt_spec.declare.protocol.types import AnyState
 from arkitekt_spec.scalars import Identifier
 from arkitekt_runtime.state.observable import Mutation, adopt, evented
 from arkitekt_runtime.state.write import write_view
-from arkitekt_spec.declare.state.publish import Patch
+from arkitekt_spec.declare.state.publish import SHUTDOWN, Patch
 from arkitekt_runtime.state.readonly import read_only_view
 from arkitekt_runtime.state.expand import aexpand_state
 from arkitekt_runtime.state.shrink import ashrink_state
@@ -330,6 +330,8 @@ class BaseAgent(KoiledModel):
         default_factory=lambda: {}
     )
     _ran_startup_hooks: bool = PrivateAttr(default=False)
+    _patch_lifecycle: str | None = PrivateAttr(default=None)
+    """What a patch made outside any task says of when it was made (``SHUTDOWN``), if anything."""
     _entered_lifecycles: list[Any] = PrivateAttr(default_factory=list)
     """The lifecycle hooks started in this run, in order: what follows their yield is owed."""
     # A stopped run reaches teardown from several places (the loop, leaving the
@@ -623,7 +625,19 @@ class BaseAgent(KoiledModel):
 
         if self._event_queue is None:
             raise AgentException("Patch queue is not initialized")
+        if patch.correlation_id is None and patch.lifecycle is None:
+            # Outside any task: the agent's own phase, if it is in one.
+            patch.lifecycle = self._patch_lifecycle
         self._event_queue.sync_q.put(QueuedPatchEvent(interface=interface, patch=patch))
+
+    @contextlib.contextmanager
+    def _in_lifecycle(self, lifecycle: str) -> Iterator[None]:
+        """Patches made outside a task in the block say ``lifecycle``."""
+        previous, self._patch_lifecycle = self._patch_lifecycle, lifecycle
+        try:
+            yield
+        finally:
+            self._patch_lifecycle = previous
 
     async def _aprocess_patch_event(self, queued_patch: QueuedPatchEvent) -> None:
         interface = queued_patch.interface
@@ -668,6 +682,8 @@ class BaseAgent(KoiledModel):
                 path=patch.path,
                 value=shrunk_value,
                 task_id=patch.correlation_id,
+                lifecycle=patch.lifecycle,
+                qualifiers=list(patch.qualifiers) or None,
                 session_id=self.current_session,
             ),
         )
@@ -1985,33 +2001,34 @@ class BaseAgent(KoiledModel):
             return
         self._ran_startup_hooks = False
 
-        for key, hook in reversed(list(self._collected_shutdown_hooks.items())):
-            missing = self._unprovided_contexts(hook)
-            if missing:
-                logger.info(
-                    "Shutdown hook %s not run: no startup hook provided %s",
-                    key,
-                    ", ".join(missing),
-                )
-                continue
-            try:
-                await asyncio.wait_for(
-                    hook.arun(
-                        agent=self,
-                        contexts=self.contexts,
-                        states=self.states,
-                        app_context=self._app_context,
-                        **self._bound_app_kwargs(hook),
-                    ),
-                    timeout=self.shutdown_hook_timeout,
-                )
-            except Exception as e:
-                hook_error = ShutdownHookError(f"Shutdown hook {key} failed")
-                hook_error.__cause__ = e
-                logger.error(hook_error, exc_info=hook_error)
+        with self._in_lifecycle(SHUTDOWN):
+            for key, hook in reversed(list(self._collected_shutdown_hooks.items())):
+                missing = self._unprovided_contexts(hook)
+                if missing:
+                    logger.info(
+                        "Shutdown hook %s not run: no startup hook provided %s",
+                        key,
+                        ", ".join(missing),
+                    )
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        hook.arun(
+                            agent=self,
+                            contexts=self.contexts,
+                            states=self.states,
+                            app_context=self._app_context,
+                            **self._bound_app_kwargs(hook),
+                        ),
+                        timeout=self.shutdown_hook_timeout,
+                    )
+                except Exception as e:
+                    hook_error = ShutdownHookError(f"Shutdown hook {key} failed")
+                    hook_error.__cause__ = e
+                    logger.error(hook_error, exc_info=hook_error)
 
-        # After the shutdown hooks: they may take what these set up.
-        await self._afinish_lifecycles()
+            # After the shutdown hooks: they may take what these set up.
+            await self._afinish_lifecycles()
 
     async def _afinish_lifecycles(self) -> None:
         """Run what follows each lifecycle hook's yield, the last one entered first.

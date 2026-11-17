@@ -13,7 +13,7 @@ the caller stream carries the ``…Event`` suffix (``Pause`` cmd vs ``Paused`` r
 ``PausedEvent`` stream).
 """
 
-from typing import Any, Literal, Union, get_args
+from typing import Any, ClassVar, Literal, Union, get_args
 from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
 from enum import Enum
 from pydantic import Field
@@ -182,11 +182,15 @@ class JournaledMessage(Message):
         description="The frame's step in its task (1, 2, 3, ... per task, shared with the task's child calls). Only on frames of a task. Not ``step``: ``ASSIGN`` has a ``step`` flag.",
     )
 
+    left_out_unset: ClassVar[tuple[str, ...]] = JOURNAL_STAMP_FIELDS
+    """The fields a frame leaves out while they are unset (the stamp, and whatever a
+    message added later that an older reader never saw)."""
+
     @model_serializer(mode="wrap")
     def _drop_unset_journal_stamp(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
         data = handler(self)
         if isinstance(data, dict):
-            for key in JOURNAL_STAMP_FIELDS:
+            for key in type(self).left_out_unset:
                 if key in data and data[key] is None:
                     del data[key]
         return data
@@ -619,6 +623,8 @@ class StatePatch(JournaledMessage):
     """
 
     type: Literal[FromAgentMessageType.STATE_PATCH] = FromAgentMessageType.STATE_PATCH
+    # A patch that says nothing of itself is the frame it always was.
+    left_out_unset: ClassVar[tuple[str, ...]] = (*JOURNAL_STAMP_FIELDS, "lifecycle", "qualifiers")
     session_id: str = Field(
         description="The session id of the agent (generated on a restart of the agent)"
     )
@@ -631,6 +637,14 @@ class StatePatch(JournaledMessage):
     task_id: str | None = Field(
         default=None,
         description="An optional correlation id to correlate this patch with a specific task_id or event in the agent's execution, which can be used for debugging and tracing purposes",
+    )
+    lifecycle: str | None = Field(
+        default=None,
+        description="Where in a task's or the agent's life the change was made, when not in its ordinary course: 'cleanup' (a task being stopped, on its way out) or 'shutdown' (the agent's shutdown hooks). Said by the runtime.",
+    )
+    qualifiers: list[str] | None = Field(
+        default=None,
+        description="What the app says the change was for (task.qualified): its own names.",
     )
 
 

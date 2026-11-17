@@ -254,6 +254,10 @@ class Actor(Protocol):
         """Show a person ``blok`` while ``task_id`` goes on."""
         ...
 
+    def task_mutation(self, assignment: Any) -> Any:  # noqa: ANN401 - (Assign) -> Mutation
+        """What the assignment's task changes states as: one for all of its views."""
+        ...
+
     async def abreak(self, task_id: str) -> bool:
         """Break the actor. This method will break the actor and return None.
         This is used to break the actor"""

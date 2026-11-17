@@ -7,6 +7,10 @@ cancelled task still running in a worker thread, a log on its way out -- is reco
 after its end. The check happens before anything is changed, so a refused change
 leaves the state as it was.
 
+A task stopped on request (cancel, interrupt) is first given time to unwind
+(``Actor.stop_grace``), so the cleanup in its ``finally`` is still its own; only
+then is its end reported and the gate closed.
+
 Entering twice on one thread is allowed (a log made while a change is in progress),
 and closing never waits for passes held by the closing thread itself.
 """

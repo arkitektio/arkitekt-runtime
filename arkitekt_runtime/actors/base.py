@@ -35,7 +35,8 @@ from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, T
 from arkitekt_runtime import messages
 from arkitekt_spec.actions import DefinitionInput, Execution, FitsInput
 from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
-from arkitekt_runtime.state.observable import Mutation
+from arkitekt_runtime.state.observable import Marks, Mutation
+from arkitekt_spec.declare.state.publish import CLEANUP
 from arkitekt_spec.declare.actors.types import (
     PreparedStateReturns,
     PreparedStateVariables,
@@ -112,6 +113,15 @@ class Actor(BaseModel):
         default_factory=lambda: {},
     )
     _serial_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
+    _task_mutations: dict[str, Mutation] = PrivateAttr(default_factory=dict)
+    """Each running task's mutation: the one thing all of its state views write as."""
+    _owed_ends: dict[str, messages.FromAgentMessage] = PrivateAttr(default_factory=dict)
+    """The end each task being stopped is to be reported with, until it is (see :meth:`_astop`)."""
+    stop_grace: float = Field(
+        default=5.0,
+        description="How long (seconds) a task being stopped is given to unwind before "
+        "its end is reported regardless; what it does after that is refused.",
+    )
 
     tests_state_requires: ClassVar[bool] = False
     """Whether this actor class tests an assignment's ``state_requires`` itself. One that
@@ -204,7 +214,13 @@ class Actor(BaseModel):
                 )
                 await stack.enter_async_context(lock_group)
 
-            yield
+            try:
+                yield
+            except asyncio.CancelledError:
+                # Stopped, and unwound: the body's own cleanup is done and was the
+                # task's. Its end is reported here, before the locks are released.
+                await self._areport_owed_end(task_id)
+                raise
 
     async def on_resume(self: Self, resume: messages.Resume) -> None:
         """A function that is called once the actor is resumed from a paused state.
@@ -321,15 +337,12 @@ class Actor(BaseModel):
         running = list(self._running_asyncio_tasks.items())
         stopped = 0
         for key, task in running:
-            task.cancel()
-            # Reported before the task unwinds (nothing is awaited in between), so
-            # its end is recorded before what the unwinding reports (the release of
-            # its locks), and nothing it still does is recorded after it.
-            await self.agent.asend(
-                self, message=messages.Critical(task=key, error=error)
-            )
             try:
-                await task
+                # No grace: a teardown and a safety stop are bounded as a whole, so
+                # the end is said at once, and what the task still does is refused.
+                await self._astop(
+                    key, task, messages.Critical(task=key, error=error), grace=0
+                )
             except asyncio.CancelledError:
                 logger.info(f"Task {key} was cancelled. Set Critical")
                 stopped += 1
@@ -339,6 +352,74 @@ class Actor(BaseModel):
                 self._running_asyncio_tasks.pop(key, None)
                 self.running_assignments.pop(key, None)
         return stopped
+
+    def task_mutation(self, assignment: Any) -> Mutation:  # noqa: ANN401 - messages.Assign
+        """What the assignment's task changes states as: one mutation for all of its
+        views, so what is said of the task (it is cleaning up, what its changes are
+        for) is said of every patch it writes."""
+        if assignment is None:
+            return Mutation()
+        mutation = self._task_mutations.get(assignment.task)
+        if mutation is None:
+            mutation = self._task_mutations[assignment.task] = Mutation(
+                correlation_id=assignment.task,
+                gate=self._task_gate(assignment),
+                marks=Marks(),
+            )
+        return mutation
+
+    def _task_gate(self, assignment: Any) -> Any:  # noqa: ANN401 - TaskGate | None
+        """The gate of the assignment's task: its state changes are refused after its end."""
+        task_gate = getattr(self.agent, "task_gate", None)
+        if assignment is None or task_gate is None:
+            return None
+        return task_gate(assignment.task)
+
+    async def _astop(
+        self: Self,
+        task_id: str,
+        task: asyncio.Task[None],
+        end: messages.FromAgentMessage,
+        grace: float | None = None,
+    ) -> None:
+        """Cancel a running assignment, let it unwind, and report ``end``.
+
+        The end is reported once the body has unwound, so what its cleanup does (a
+        ``finally`` putting a state back) is still the task's and is recorded before
+        the end. It is reported by the task itself, on its way out of
+        :meth:`sync_context`: after the body, before its locks are released (the
+        end comes before its ``UNLOCK``). A task stopped before it got that far
+        (queued behind a lock) is reported here once it is gone.
+
+        A body that does not unwind within ``grace`` (``stop_grace`` unless given)
+        has its end reported regardless: that closes the task's gate, and whatever it still does is
+        refused. Raises what awaiting the task raises (``CancelledError`` for one
+        that stopped as asked).
+        """
+        grace = self.stop_grace if grace is None else grace
+        self._owed_ends[task_id] = end
+        mutation = self._task_mutations.get(task_id)
+        if mutation is not None and mutation.marks is not None:
+            # From here on the task is on its way out: what it still writes is cleanup.
+            mutation.marks.lifecycle = CLEANUP
+        task.cancel()
+        if grace > 0:
+            _, unwinding = await asyncio.wait({task}, timeout=grace)
+            if unwinding:
+                logger.warning(
+                    "Task %s did not unwind within %ss of being stopped: its end is "
+                    "reported now, and what it still does is refused",
+                    task_id,
+                    grace,
+                )
+        await self._areport_owed_end(task_id)
+        await task
+
+    async def _areport_owed_end(self: Self, task_id: str) -> None:
+        """Report the end ``task_id`` is being stopped with, once."""
+        end = self._owed_ends.pop(task_id, None)
+        if end is not None:
+            await self.agent.asend(self, message=end)
 
     async def ahold(
         self: Self,
@@ -440,6 +521,7 @@ class Actor(BaseModel):
         # its hook.
         self._running_assignment_hooks.pop(task_id, None)
         self._break_futures.pop(task_id, None)
+        self._task_mutations.pop(task_id, None)
         try:
             task.result()
         except asyncio.CancelledError:
@@ -503,7 +585,8 @@ class Actor(BaseModel):
         """Stop one running assignment on the backend's request and report ``terminal``.
 
         ``Cancel`` and ``Interrupt`` differ only in the terminal message they owe the
-        backend; the mechanism — cancel the task, await it, report — is the same.
+        backend; the mechanism — cancel the task, let it unwind, report — is the same
+        (:meth:`_astop`).
         """
         if task_id not in self._running_asyncio_tasks:
             logger.error(
@@ -517,14 +600,8 @@ class Actor(BaseModel):
             await self.agent.asend(self, message=terminal(task=task_id))
             return
 
-        task.cancel()
-        # Reported before the task unwinds (nothing is awaited in between): the end
-        # closes the task's gate, so nothing the task still does -- a state change
-        # from a worker thread, a log on its way out -- is recorded after it, and the
-        # release of its locks (``UNLOCK``) follows it.
-        await self.agent.asend(self, message=terminal(task=task_id))
         try:
-            await task
+            await self._astop(task_id, task, terminal(task=task_id))
         except asyncio.CancelledError:
             logger.info(
                 f"Task {task_id} was {verb} through arkitekt. Reported {terminal.__name__}"
@@ -704,11 +781,7 @@ class SerializingActor(Actor):
         for key, interface in self.state_variables.write_state_variables.items():
             try:
                 state_kwargs[key] = await self.agent.aget_write_proxy(
-                    interface,
-                    Mutation(
-                        correlation_id=assignment.task if assignment else None,
-                        gate=self._task_gate(assignment),
-                    ),
+                    interface, self.task_mutation(assignment)
                 )
             except KeyError as e:
                 raise StateRequirementsNotMet(f"State requirements not met: {e}") from e
@@ -720,13 +793,6 @@ class SerializingActor(Actor):
                 raise StateRequirementsNotMet(f"State requirements not met: {e}") from e
 
         return context_kwargs, state_kwargs
-
-    def _task_gate(self, assignment: Any) -> Any:  # noqa: ANN401 - TaskGate | None
-        """The gate of the assignment's task: its state changes are refused after its end."""
-        task_gate = getattr(self.agent, "task_gate", None)
-        if assignment is None or task_gate is None:
-            return None
-        return task_gate(assignment.task)
 
     async def aget_dependency_locals(
         self: Self, task: Task
