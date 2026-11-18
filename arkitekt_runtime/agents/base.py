@@ -44,8 +44,8 @@ from arkitekt_spec.declare.agents.errors import (
 from arkitekt_runtime.agents.dataclasses import (
     QueuedAssign,
     QueuedMessage,
-    QueuedPatchEvent,
     QueuedRead,
+    QueuedUpdate,
     QueuedStep,
     RevisedState,
 )
@@ -99,16 +99,16 @@ PREVIOUS_STATE_TIMEOUT = 10.0
 _FINISHED_TASKS_REMEMBERED = 2048
 
 #: What the agent's ordered queue carries.
-QueuedItem = QueuedPatchEvent | QueuedMessage | QueuedAssign | QueuedStep | QueuedRead
+QueuedItem = QueuedUpdate | QueuedMessage | QueuedAssign | QueuedStep | QueuedRead
 
-# ``AppContext``/``RevisedState``/``QueuedPatchEvent`` used to be defined here;
+# ``AppContext``/``RevisedState``/``QueuedUpdate`` used to be defined here;
 # they stay importable from this module.
 __all__ = [
     "BaseAgent",
     "NoCallerError",
     "AppContext",
     "T",
-    "QueuedPatchEvent",
+    "QueuedUpdate",
     "RevisedState",
 ]
 
@@ -545,7 +545,7 @@ class BaseAgent(KoiledModel):
                 logger.error("Could not record assignment %s", item.assign.task, exc_info=True)
         else:
             try:
-                await self._aprocess_patch_event(item)
+                await self._aprocess_update(item)
             except Exception:
                 logger.error("Could not publish a patch of %s", item.interface, exc_info=True)
 
@@ -619,16 +619,19 @@ class BaseAgent(KoiledModel):
         """Record a value ``task`` took from outside itself (``EFFECT``)."""
         await self._adispatch(messages.Effect(task=task, effect=effect, value=value))
 
-    def publish_patch(self, interface: str, patch: Patch) -> None:
-        """Publish a patch to the agent. This is used to publish patches to the
-        agent from the actor."""
+    def publish_update(self, interface: str, patches: Sequence[Patch]) -> None:
+        """Take one update of a state from whoever made it (a task's view, the state
+        itself): the operations that make it up, in order. It is reported as one frame."""
 
         if self._event_queue is None:
             raise AgentException("Patch queue is not initialized")
-        if patch.correlation_id is None and patch.lifecycle is None:
-            # Outside any task: the agent's own phase, if it is in one.
-            patch.lifecycle = self._patch_lifecycle
-        self._event_queue.sync_q.put(QueuedPatchEvent(interface=interface, patch=patch))
+        if not patches:
+            return
+        for patch in patches:
+            if patch.correlation_id is None and patch.lifecycle is None:
+                # Outside any task: the agent's own phase, if it is in one.
+                patch.lifecycle = self._patch_lifecycle
+        self._event_queue.sync_q.put(QueuedUpdate(interface=interface, patches=list(patches)))
 
     @contextlib.contextmanager
     def _in_lifecycle(self, lifecycle: str) -> Iterator[None]:
@@ -639,29 +642,29 @@ class BaseAgent(KoiledModel):
         finally:
             self._patch_lifecycle = previous
 
-    async def _aprocess_patch_event(self, queued_patch: QueuedPatchEvent) -> None:
-        interface = queued_patch.interface
-        patch = queued_patch.patch
+    async def _aprocess_update(self, queued: QueuedUpdate) -> None:
+        """Apply one update to what the backend knows of the state, and report it: one
+        revision, one frame, whatever the number of operations."""
+        interface = queued.interface
+        first = queued.patches[0]
 
-        # Check the revisions of the state
-        future_global_rev = self.global_revision + 1
-
-        # Enforce that patches are applied in order
         if interface not in self._current_shrunk_states:
             self._current_shrunk_states[interface] = await self.ashrink_state(
                 interface=interface,
                 state=self.states[interface],
             )
 
-        # A value this shrink shelves was shelved by the changing task.
-        with task_id_scope(patch.correlation_id):
-            shrunk_value = await self._ashrink_patch_value(interface, patch)
+        ops: list[messages.StateOp] = []
+        for patch in queued.patches:
+            # A value this shrink shelves was shelved by the changing task.
+            with task_id_scope(patch.correlation_id):
+                shrunk_value = await self._ashrink_patch_value(interface, patch)
+            self._aapply_patch_to_shrunk_state(interface, patch, shrunk_value)
+            ops.append(messages.StateOp(op=patch.op, path=patch.path, value=shrunk_value))
 
-        self._aapply_patch_to_shrunk_state(interface, patch, shrunk_value)
-
-        self.global_revision = future_global_rev
+        self.global_revision += 1
         if self.global_revision % self.snapshot_interval == 0:
-            # Before the patch that reaches this revision, and already containing it.
+            # Before the update that reaches this revision, and already containing it.
             await self._aemit(
                 messages.StateSnapshot(
                     session_id=self.current_session,
@@ -674,17 +677,13 @@ class BaseAgent(KoiledModel):
             )
 
         await self._aemit(
-            messages.StatePatch(
+            messages.StateUpdate(
+                state=interface,
                 global_rev=self.global_revision,
-                state_name=interface,
-                ts=queued_patch.event_time.timestamp(),
-                op=patch.op,
-                path=patch.path,
-                value=shrunk_value,
-                task_id=patch.correlation_id,
-                lifecycle=patch.lifecycle,
-                qualifiers=list(patch.qualifiers) or None,
-                session_id=self.current_session,
+                ops=ops,
+                task=first.correlation_id,
+                lifecycle=first.lifecycle,
+                qualifiers=list(first.qualifiers) or None,
             ),
         )
 
@@ -1008,6 +1007,21 @@ class BaseAgent(KoiledModel):
         if task in self._finished_tasks:
             return messages.TaskStatus.ENDED
         return messages.TaskStatus.UNKNOWN
+
+    def known_tasks(self) -> list[str]:
+        """Every task :meth:`task_status` would not call ``UNKNOWN``: held for the app to
+        start, under way, or ended with this agent still remembering it.
+
+        Said on every ``Register``. A backend that had a task of this process under way and
+        does not find it here ends it as lost, so this must never leave out a task
+        :meth:`task_status` knows: the two are kept side by side.
+        """
+        held = [
+            message.task
+            for message in self._held_provider_messages
+            if isinstance(message, messages.Assign)
+        ]
+        return list(dict.fromkeys([*self.managed_assignments, *held, *self._finished_tasks]))
 
     async def _aanswer_inquiry(self, inquiry: messages.Inquire) -> None:
         """Answer at once, straight to the transport: an answer is not a report, has no
@@ -1574,7 +1588,7 @@ class BaseAgent(KoiledModel):
         """Report a message: through the ordered queue, behind everything made before it.
 
         Task reports, lock changes and the session baseline all go through here, and
-        state patches through :meth:`publish_patch`, into one queue. Its processor
+        state updates through :meth:`publish_update`, into one queue. Its processor
         numbers each message in the journal and hands it to the
         transport (:meth:`_aemit`), so the order on the wire is the order things
         happened: a ``COMPLETED`` can no longer overtake its task's patches.
@@ -1705,8 +1719,8 @@ class BaseAgent(KoiledModel):
         self, message: messages.FromAgentMessage, entry: JournalEntry | None
     ) -> None:
         """Hand one numbered message to where it goes."""
-        if isinstance(message, messages.StatePatch):
-            await self.apublish_patch(message, entry)
+        if isinstance(message, messages.StateUpdate):
+            await self.apublish_update(message, entry)
         elif isinstance(message, messages.StateSnapshot):
             await self.apublish_snapshot(message, entry)
         elif isinstance(message, messages.SessionInit):
@@ -1816,12 +1830,12 @@ class BaseAgent(KoiledModel):
         await self._asend_out(session_init, entry)
         logger.debug("Published session init %s", session_init)
 
-    async def apublish_patch(
-        self, patch: messages.StatePatch, entry: JournalEntry | None = None
+    async def apublish_update(
+        self, update: messages.StateUpdate, entry: JournalEntry | None = None
     ) -> None:
-        """Publish a state patch over the socket."""
-        await self._asend_out(patch, entry)
-        logger.debug("Published patch %s", patch)
+        """Publish a state update to whoever follows this agent's states."""
+        await self._asend_out(update, entry)
+        logger.debug("Published update %s", update)
 
     async def apublish_snapshot(
         self, snapshot: messages.StateSnapshot, entry: JournalEntry | None = None
@@ -2208,6 +2222,7 @@ class BaseAgent(KoiledModel):
             supervisor=self.supervisor,
             features=[messages.FEATURE_STATE_REQUIRES],
             hardware=await asyncio.to_thread(detect_hardware),
+            tasks=self.known_tasks(),
         )
 
     async def _aconnect_sequence(self, context: AppContext | None = None) -> None:

@@ -40,6 +40,7 @@ from arkitekt_spec.declare.task import StateRef, aretry, retry
 from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel, TaskBlok, as_task_blok
 from arkitekt_spec.declare.task import Task as TaskProtocol
 from arkitekt_runtime.messages import EffectKind
+from arkitekt_runtime.state.observable import config_of
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Generator, Iterator
@@ -282,6 +283,24 @@ class Task:
             yield
         finally:
             marks.qualifiers = previous
+
+    @contextlib.contextmanager
+    def updating(self, *states: object) -> "Iterator[None]":
+        """Make everything the block changes on each of ``states`` one update of it::
+
+            with task.updating(stage):
+                stage.x = 10
+                stage.y = 20
+
+        Whoever follows the stage sees both or neither. Each state is held for the block
+        (another task changing it waits), so keep it short and wait for nothing inside.
+        """
+        with contextlib.ExitStack() as held:
+            for state in states:
+                config = config_of(state)
+                if config is not None:
+                    held.enter_context(config.updating())
+            yield
 
     async def _aenter_guard(self, state: object, paths: "tuple[str, ...]") -> None:
         if not isinstance(state, StateRef):

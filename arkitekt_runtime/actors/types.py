@@ -138,8 +138,8 @@ class ActorContext(Shelver, LockHost, Capturable, Protocol):
         """
         ...
 
-    def publish_patch(self, interface: str, patch: Patch) -> None:
-        """Publish a state patch. Satisfies ``state.publish.StateHolder``."""
+    def publish_update(self, interface: str, patches: Sequence[Patch]) -> None:
+        """Publish one update of a state. Satisfies ``state.publish.StateHolder``."""
         ...
 
     async def aread_states(self, interfaces: Sequence[str]) -> dict[str, Any]:

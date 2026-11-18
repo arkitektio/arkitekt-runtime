@@ -82,7 +82,10 @@ TERMINAL_KINDS = frozenset({"COMPLETED", "FAILED", "CRITICAL", "CANCELLED", "INT
 #: Kinds that belong to the whole session rather than to a task, state or lock.
 SESSION_KINDS = ("SESSION_INIT", "STATE_SNAPSHOT")
 #: Kinds that carry state values.
-STATE_KINDS = ("SESSION_INIT", "STATE_SNAPSHOT", "STATE_PATCH")
+STATE_KINDS = ("SESSION_INIT", "STATE_SNAPSHOT", "STATE_UPDATE", "STATE_PATCH")
+#: Kinds that change one state: an update, and the single operation agents reported
+#: before updates (still in journals written then).
+STATE_CHANGE_KINDS = ("STATE_UPDATE", "STATE_PATCH")
 #: The agent messages that are journaled (``ASSIGN`` is recorded separately).
 JOURNALED_KINDS = frozenset(
     {
@@ -100,6 +103,7 @@ JOURNALED_KINDS = frozenset(
         "LOCK",
         "UNLOCK",
         "STATE_PATCH",
+        "STATE_UPDATE",
         "STATE_SNAPSHOT",
         "SESSION_INIT",
         "EFFECT",
@@ -158,6 +162,8 @@ def task_of(message: messages.Message) -> str | None:
     """
     if isinstance(message, messages.StatePatch):
         return message.task_id
+    if isinstance(message, messages.StateUpdate):
+        return message.task
     if isinstance(message, (messages.Unshelve, messages.SessionInit, messages.StateSnapshot)):
         return None
     if isinstance(message, (messages.AssignRequest, messages.ControlRequest)):
@@ -231,7 +237,7 @@ class JournalEntry:
 
     def route(self) -> Route:
         """Who the entry is for, as subscribers filter."""
-        if self.kind == "STATE_PATCH" and self.subject is not None:
+        if self.kind in STATE_CHANGE_KINDS and self.subject is not None:
             return ("state", self.subject)
         if self.kind in ("LOCK", "UNLOCK") and self.subject is not None:
             return ("lock", self.subject)
@@ -281,7 +287,7 @@ def entry_matches(
         return False
     if action_keys is None and state_keys is None and lock_keys is None:
         return True
-    if entry.kind == "STATE_PATCH":
+    if entry.kind in STATE_CHANGE_KINDS:
         return not state_keys or entry.subject in state_keys
     if entry.kind in ("LOCK", "UNLOCK"):
         return not lock_keys or entry.subject in lock_keys
@@ -365,7 +371,7 @@ class Fold:
         elif kind == "STATE_SNAPSHOT":
             self._replace_states(payload.get("snapshots"))
             self.baseline_rev = int(payload.get("global_rev") or entry.global_rev)
-        elif kind == "STATE_PATCH":
+        elif kind in STATE_CHANGE_KINDS:
             revision = payload.get("global_rev", entry.global_rev)
             subject = entry.subject
             if (
@@ -373,12 +379,15 @@ class Fold:
                 and subject in self.states
                 and not (isinstance(revision, int) and revision <= self.baseline_rev)
             ):
-                self.states[subject] = apply_op(
-                    self.states[subject],
-                    str(payload.get("op") or ""),
-                    str(payload.get("path") or ""),
-                    payload.get("value"),
-                )
+                # An update's operations, in order; a patch is its one.
+                ops = payload.get("ops") if kind == "STATE_UPDATE" else [payload]
+                for op in ops or []:
+                    self.states[subject] = apply_op(
+                        self.states[subject],
+                        str(op.get("op") or ""),
+                        str(op.get("path") or ""),
+                        op.get("value"),
+                    )
         elif kind == "LOCK":
             if entry.subject is not None and entry.task_id is not None:
                 self.locks[entry.subject] = entry.task_id
@@ -389,7 +398,7 @@ class Fold:
         task_id = entry.task_id
         if task_id is None:
             return
-        if kind in ("STATE_PATCH", "LOCK", "UNLOCK", "SHELVE"):
+        if kind in ("STATE_PATCH", "STATE_UPDATE", "LOCK", "UNLOCK", "SHELVE"):
             known = self.tasks.get(task_id)
             if known is not None:
                 known.last_pos = max(known.last_pos, entry.pos)
@@ -708,15 +717,21 @@ class Journal:
                     self._fold = Fold()
                     self._finished.clear()
                 self._global_rev = 0
-            elif isinstance(message, (messages.StatePatch, messages.StateSnapshot)):
+            elif isinstance(
+                message, (messages.StatePatch, messages.StateUpdate, messages.StateSnapshot)
+            ):
                 self._global_rev = message.global_rev
 
             task_id = task_of(message)
-            if is_probe_task(task_id) and not isinstance(message, messages.StatePatch):
+            if is_probe_task(task_id) and not isinstance(
+                message, (messages.StatePatch, messages.StateUpdate)
+            ):
                 return None
             subject: str | None = None
             if isinstance(message, messages.StatePatch):
                 subject = message.state_name
+            elif isinstance(message, messages.StateUpdate):
+                subject = message.state
             elif isinstance(message, messages.Lock):
                 subject = message.key
             elif isinstance(message, messages.Unlock):

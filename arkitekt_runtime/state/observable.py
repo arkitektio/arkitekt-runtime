@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, overload, SupportsIndex
 from collections.abc import Callable, Iterable
 
@@ -89,6 +90,8 @@ class StateConfig:
     """Where patches go: the agent that adopted the state. None until then."""
     active: Mutation | None = dataclasses.field(default=None, init=False, compare=False)
     """The mutation a task's write view is making right now, for one operation."""
+    pending: "list[Patch] | None" = dataclasses.field(default=None, init=False, compare=False)
+    """The update being put together (see :meth:`updating`); None while there is none."""
     lock: threading.RLock = dataclasses.field(
         default_factory=threading.RLock, init=False, compare=False, repr=False
     )
@@ -124,11 +127,63 @@ class StateConfig:
             previous = self.active
             self.active = mutation
             try:
-                yield
+                # One operation is one update, whatever it takes apart into.
+                with self.updating():
+                    yield
             finally:
                 self.active = previous
                 if gate is not None:
                     gate.leave()
+
+    @contextlib.contextmanager
+    def updating(self) -> Iterator[None]:
+        """Make every change in the block one update of the state.
+
+        An update is the unit a state changes by: it takes the state from one revision to
+        the next, and whoever follows the state sees all of it or none of it. One operation
+        on a state (``moves.update({...})``, ``items.extend([...])``) is one update however
+        many JSON Patch operations describe it, and so is everything a task does inside
+        ``task.updating(state)``.
+
+        The state's lock is held for the block, so no other thread's change lands in the
+        middle of it. The update is handed on when the outermost block is left, also when
+        it is left by an exception: what was changed until then was changed.
+        """
+        with self.lock:
+            if self.pending is not None:
+                yield  # inside an update already: its changes join it
+                return
+            self.pending = []
+            try:
+                yield
+            finally:
+                patches, self.pending = self.pending, None
+                self._hand_on(patches)
+
+    def _hand_on(self, patches: "list[Patch]") -> None:
+        if patches and self.publisher is not None:
+            self.publisher.publish_update(self.state_name, patches)
+
+    def publish(self, patch: Patch) -> None:
+        """Add ``patch`` to the update being put together, or hand it on as one of its own.
+
+        An update is one task's, said one way: a change that is another task's, or marked
+        otherwise, than what the update holds so far (two coroutines of one thread inside
+        the same block) closes that update and starts the next.
+        """
+        with self.lock:
+            if self.pending is None:
+                self._hand_on([patch])
+                return
+            if self.pending and _said_of(self.pending[0]) != _said_of(patch):
+                patches, self.pending = self.pending, []
+                self._hand_on(patches)
+            self.pending.append(patch)
+
+
+def _said_of(patch: Patch) -> tuple[str | None, str | None, tuple[str, ...]]:
+    """What an update says of every change in it: who made it, and what is said of it."""
+    return (patch.correlation_id, patch.lifecycle, tuple(patch.qualifiers))
 
 
 def config_of(obj: Any) -> StateConfig | None:  # noqa: ANN401
@@ -183,8 +238,7 @@ def _publish_patch(config: StateConfig, patch: Patch) -> None:
     if mutation.marks is not None:
         patch.lifecycle = mutation.marks.lifecycle
         patch.qualifiers = mutation.marks.qualifiers
-    if config.publisher is not None:
-        config.publisher.publish_patch(config.state_name, patch)
+    config.publish(patch)
 
 
 def _resolve_child_port(
@@ -221,6 +275,20 @@ def _make_patch(
         old_value=old_value,
         port=port,
     )
+
+
+def _one_update(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Make everything a container's method changes one update of its state."""
+
+    @functools.wraps(method)
+    def as_one(self: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        config = self._config
+        if config is None:
+            return method(self, *args, **kwargs)
+        with config.updating():
+            return method(self, *args, **kwargs)
+
+    return as_one
 
 
 # --- JSON Patch Compliant EventedDict (RFC 6902) ---
@@ -344,6 +412,7 @@ class EventedDict(dict[K, V], Generic[K, V]):
         )
         return key, value
 
+    @_one_update
     def clear(self) -> None:
         """Remove all items from the dictionary.
 
@@ -362,6 +431,7 @@ class EventedDict(dict[K, V], Generic[K, V]):
             self[key] = default
         return self[key]
 
+    @_one_update
     def update(
         self,
         other: "SupportsKeysAndGetItem[K, V] | Iterable[tuple[K, V]] | None" = None,
@@ -432,6 +502,7 @@ class EventedList(list[T], Generic[T]):
     @overload
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
+    @_one_update
     def __setitem__(self, index: SupportsIndex | slice, value: T | Iterable[T]) -> None:
         if isinstance(index, slice):
             # Expand slice assignment into the single-index primitives so the
@@ -474,6 +545,7 @@ class EventedList(list[T], Generic[T]):
                 ),
             )
 
+    @_one_update
     def __delitem__(self, index: SupportsIndex | slice) -> None:
         if isinstance(index, slice):
             # Handle slice deletion
@@ -547,6 +619,7 @@ class EventedList(list[T], Generic[T]):
         # Reindex items after the inserted position
         self._reindex_items(idx + 1)
 
+    @_one_update
     def extend(self, items: Iterable[T]) -> None:
         """Extend list by appending elements from the iterable.
 
@@ -593,6 +666,7 @@ class EventedList(list[T], Generic[T]):
         index = self.index(item)
         del self[index]
 
+    @_one_update
     def clear(self) -> None:
         """Remove all items from list.
 
@@ -601,6 +675,7 @@ class EventedList(list[T], Generic[T]):
         while len(self) > 0:
             self.pop()
 
+    @_one_update
     def _reorder(self, operation: Callable[[], None]) -> None:
         """Run an in-place reordering and emit 'replace' patches for moved slots."""
         old_items = list(self)
@@ -661,11 +736,13 @@ class EventedList(list[T], Generic[T]):
 
         self._reorder(_sort)
 
+    @_one_update
     def __iadd__(self, other: Iterable[T]) -> "EventedList[T]":
         """Implement += operator."""
         self.extend(other)
         return self
 
+    @_one_update
     def __imul__(self, n: SupportsIndex) -> "EventedList[T]":  # type: ignore[override]
         """Implement *= operator."""
         count = n.__index__() if hasattr(n, "__index__") else int(n)  # type: ignore

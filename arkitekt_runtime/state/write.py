@@ -110,6 +110,30 @@ class _WriteDict(_WriteContainer, MutableMapping[Any, Any]):
         return iter(self._target)
 
 
+def _as_one_mutation(name: str) -> Any:  # noqa: ANN401
+    """The container's own ``name``, run as one mutation of the task's.
+
+    ``MutableSequence`` and ``MutableMapping`` bring mixin versions of these
+    (``update`` as one ``__setitem__`` per key), which would make one call several
+    updates of the state: the target's own method is one.
+    """
+
+    def mutate(self: _WriteContainer, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        with self._config.mutating(self._mutation):
+            return getattr(self._target, name)(*args, **kwargs)
+
+    mutate.__name__ = name
+    return mutate
+
+
+# ``append`` and ``insert`` are one operation either way, and stay as they were (an
+# append through a view names the index it lands on).
+for _name in _LIST_MUTATORS - {"insert", "append"}:
+    setattr(_WriteList, _name, _as_one_mutation(_name))
+for _name in _DICT_MUTATORS:
+    setattr(_WriteDict, _name, _as_one_mutation(_name))
+
+
 def _wrap(value: Any, mutation: Mutation) -> Any:  # noqa: ANN401
     """Wrap the evented parts of a state, so changes to them count as the task's."""
     config = config_of(value)

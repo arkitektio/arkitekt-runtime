@@ -14,11 +14,12 @@ from arkitekt_spec.declare.structures.types import JSONSerializable
 
 
 @dataclass
-class QueuedPatchEvent:
-    """A state patch waiting in the agent's patch queue."""
+class QueuedUpdate:
+    """One update of a state, waiting in the agent's ordered queue: the operations that
+    make it up, in the order they were made."""
 
     interface: str
-    patch: Patch
+    patches: list[Patch]
     event_time: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -68,4 +69,4 @@ class RevisedState:
     data: JSONSerializable
 
 
-__all__ = ["QueuedAssign", "QueuedMessage", "QueuedPatchEvent", "QueuedRead", "QueuedStep", "RevisedState"]
+__all__ = ["QueuedAssign", "QueuedMessage", "QueuedRead", "QueuedUpdate", "QueuedStep", "RevisedState"]

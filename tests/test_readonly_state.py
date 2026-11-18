@@ -46,8 +46,8 @@ class _RecordingPublisher:
     def __init__(self) -> None:
         self.patches: list[str] = []
 
-    def publish_patch(self, interface: str, patch: object, task_id: str | None = None) -> None:
-        self.patches.append(interface)
+    def publish_update(self, interface: str, patches: list) -> None:  # type: ignore[type-arg]
+        self.patches.extend(interface for _ in patches)
 
 
 def test_view_is_still_the_state_type() -> None:
@@ -203,8 +203,10 @@ class _PatchRecorder:
     def __init__(self) -> None:
         self.patches: list[dict] = []
 
-    def publish_patch(self, interface: str, patch: object, task_id: str | None = None) -> None:
-        self.patches.append({"op": patch.op, "path": patch.path, "value": getattr(patch, "value", None)})
+    def publish_update(self, interface: str, patches: list) -> None:  # type: ignore[type-arg]
+        self.patches.extend(
+            {"op": patch.op, "path": patch.path, "value": getattr(patch, "value", None)} for patch in patches
+        )
 
 
 def _replay(patches: list[dict], initial: list) -> list:

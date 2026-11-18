@@ -123,6 +123,7 @@ class FromAgentMessageType(str, Enum):
     STATE_PATCH = "STATE_PATCH"
     LOCK = "LOCK"
     UNLOCK = "UNLOCK"
+    STATE_UPDATE = "STATE_UPDATE"
     STATE_SNAPSHOT = "STATE_SNAPSHOT"
     SESSION_INIT = "SESSION_INIT"
     ASSIGN_REQUEST = "ASSIGN_REQUEST"
@@ -616,10 +617,10 @@ class SessionInit(JournaledMessage):
 
 
 class StatePatch(JournaledMessage):
-    """A state patch message
+    """One operation on a state, as agents said it before :class:`StateUpdate`.
 
-    A state patch is sent when the agent wants to send a granular state modification
-    to the rekuest backend.
+    This runtime reports a :class:`StateUpdate`; a backend still reads this frame from
+    agents that do not, as an update of one operation.
     """
 
     type: Literal[FromAgentMessageType.STATE_PATCH] = FromAgentMessageType.STATE_PATCH
@@ -645,6 +646,46 @@ class StatePatch(JournaledMessage):
     qualifiers: list[str] | None = Field(
         default=None,
         description="What the app says the change was for (task.qualified): its own names.",
+    )
+
+
+class StateOp(BaseModel):
+    """One RFC 6902 operation of a state update."""
+
+    op: str
+    path: str
+    value: Any = None
+
+
+class StateUpdate(JournaledMessage):
+    """One update of a state: what takes it from one revision to the next.
+
+    An update is the unit a state changes by. However many operations describe it
+    (``moves.update({...})`` is one per key, ``task.updating(state)`` whatever the block
+    did), they are applied in order and seen together or not at all: nobody who follows
+    the state is shown it between two of them. ``global_rev`` is the revision the state
+    is at once the update is applied.
+
+    The session it belongs to and when it was made are the frame's own
+    (``journal_session``, ``agent_ts``): it says neither a second time.
+    """
+
+    type: Literal[FromAgentMessageType.STATE_UPDATE] = FromAgentMessageType.STATE_UPDATE
+    left_out_unset: ClassVar[tuple[str, ...]] = (*JOURNAL_STAMP_FIELDS, "task", "lifecycle", "qualifiers")
+    state: str = Field(description="The state that changed, by the name the agent declares it under.")
+    global_rev: int = Field(description="The agent's state revision once this update is applied.")
+    ops: list[StateOp] = Field(description="What the update does, as RFC 6902 operations, applied in order.")
+    task: str | None = Field(
+        default=None,
+        description="The task that made the update, if one did.",
+    )
+    lifecycle: str | None = Field(
+        default=None,
+        description="Where in a task's or the agent's life the update was made, when not in its ordinary course: 'cleanup' (a task being stopped, on its way out) or 'shutdown' (the agent's shutdown hooks). Said by the runtime.",
+    )
+    qualifiers: list[str] | None = Field(
+        default=None,
+        description="What the app says the update was for (task.qualified): its own names.",
     )
 
 
@@ -924,6 +965,10 @@ class Register(AgentDeclaration, Message):
     sessions: list[str] = Field(
         default_factory=list,
         description="The journal sessions this agent still holds unacknowledged frames of.",
+    )
+    tasks: list[str] | None = Field(
+        default=None,
+        description="Every task this process holds, in whatever state: waiting, under way, or ended with its report still to come. A server that had one of its tasks under way and does not find it here ends it as lost, at once. None from an agent that does not say: the server asks about each instead.",
     )
 
 
@@ -1581,6 +1626,7 @@ FromAgentMessage = (
     | Cancelled
     | Interrupted
     | StatePatch
+    | StateUpdate
     | StateSnapshot
     | Lock
     | Unlock

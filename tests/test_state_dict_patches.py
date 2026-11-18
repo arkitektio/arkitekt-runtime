@@ -36,8 +36,8 @@ class Recorder:
     def __init__(self) -> None:
         self.patches: list[Any] = []
 
-    def publish_patch(self, interface: str, patch: Any) -> None:  # noqa: ANN401
-        self.patches.append(patch)
+    def publish_update(self, interface: str, patches: Any) -> None:  # noqa: ANN401
+        self.patches.extend(patches)
 
 
 def adopted(state: Moves) -> tuple[Moves, Recorder, Any]:

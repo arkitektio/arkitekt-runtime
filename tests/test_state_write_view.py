@@ -16,6 +16,7 @@ from arkitekt_runtime.state.observable import (
     StateConfig,
     adopt,
     make_evented,
+    config_of as state_config,
 )
 from arkitekt_runtime.state.write import write_view
 
@@ -31,9 +32,12 @@ class Board:
 class Recorder:
     def __init__(self) -> None:
         self.patches: list[tuple[str, str, str | None]] = []
+        self.updates: list[int] = []
+        """How many operations each update held, in the order they were handed over."""
 
-    def publish_patch(self, interface: str, patch: object) -> None:
-        self.patches.append((patch.op, patch.path, patch.correlation_id))  # type: ignore[attr-defined]
+    def publish_update(self, interface: str, patches: list) -> None:  # type: ignore[type-arg]
+        self.updates.append(len(patches))
+        self.patches.extend((patch.op, patch.path, patch.correlation_id) for patch in patches)
 
 
 def board() -> Board:
@@ -60,6 +64,25 @@ def test_changes_through_a_view_carry_the_task_and_stay_the_state_type() -> None
         ("add", "/items/0", "t1"),
         ("add", "/meta/k", "t1"),
     ]
+
+
+def test_one_operation_is_one_update_and_so_is_an_updating_block() -> None:
+    """A state changes by updates: whoever follows it gets an update's operations together."""
+    state, recorder = board(), Recorder()
+    adopt(state, recorder)
+    view = write_view(state, Mutation(correlation_id="t1"))
+
+    view.meta.update({"a": 1, "b": 2})
+    assert recorder.updates == [2], "one call, however many operations describe it"
+
+    with state_config(state).updating():
+        view.count = 1
+        view.items.append("x")
+        view.meta["c"] = 3
+    assert recorder.updates == [2, 3], "what a task does inside task.updating(state)"
+
+    view.count = 2
+    assert recorder.updates == [2, 3, 1]
 
 
 def test_one_field_assigned_to_another_stores_a_copy_not_the_view() -> None:

@@ -53,6 +53,10 @@ class HandshakeParams(BaseModel):
     sessions: list[str] = Field(default_factory=list)
     """The journal sessions the agent still holds unacknowledged frames of: the backend's
     ``Init`` says how far it has each."""
+    tasks: list[str] | None = Field(default=None)
+    """Every task the process holds (see ``BaseAgent.known_tasks``). A backend that had a task
+    of this process under way and does not find it here ends it as lost. ``None`` says
+    nothing, and the backend asks about each task instead."""
     session_id: str | None = Field(default=None)
     """Per-process identifier, minted in memory by the agent at start-up and never
     persisted. Its volatility is the reclaim signal: reconnecting with the SAME
