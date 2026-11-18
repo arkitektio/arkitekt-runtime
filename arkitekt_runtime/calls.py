@@ -221,6 +221,32 @@ async def acall_dependency_raw(
     return returns
 
 
+async def aiterate_dependency_raw(
+    dependency_key: ID,
+    method: str,
+    kwargs: dict[str, JSONSerializable],
+    *,
+    postman: Postman,
+    reference: str | None = None,
+    parent: Assign | None = None,
+    call_key: str | None = None,
+) -> AsyncGenerator[Any, None]:
+    """Stream a generator method of a dependency with already serialized arguments, each yield raw.
+
+    The streaming counterpart of :func:`acall_dependency_raw` (see there for ``call_key``).
+    """
+    async for raw_returns in _astream_raw(
+        postman,
+        args=kwargs,
+        reference=reference,
+        parent=_resolve_parent(parent),
+        dependency=dependency_key,
+        method=method,
+        call_key=call_key,
+    ):
+        yield raw_returns
+
+
 async def acall_dependency(
     definition: DefinitionInput,
     dependency_key: ID,

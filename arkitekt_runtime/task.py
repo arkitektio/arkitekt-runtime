@@ -688,6 +688,25 @@ class Task:
         postman, _, parent = self._caller(calling=False)
         return await acall_dependency_raw(dependency, method, kwargs or {}, postman=postman, parent=parent, reference=reference, call_key=call_key)
 
+    async def aiterate_dependency_raw(
+        self,
+        dependency: str,
+        method: str,
+        kwargs: "dict[str, JSONSerializable] | None" = None,
+        *,
+        reference: str | None = None,
+        call_key: str | None = None,
+    ) -> "AsyncGenerator[Any, None]":
+        """Stream a generator method of a dependency bound to this task, each yield raw.
+
+        The streaming counterpart of :meth:`acall_dependency_raw`.
+        """
+        from arkitekt_runtime.calls import aiterate_dependency_raw
+
+        postman, _, parent = self._caller(calling=False)
+        async for value in aiterate_dependency_raw(dependency, method, kwargs or {}, postman=postman, parent=parent, reference=reference, call_key=call_key):
+            yield value
+
     async def aiterate_raw(
         self,
         kwargs: "dict[str, JSONSerializable] | None" = None,
