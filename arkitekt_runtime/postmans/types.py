@@ -69,6 +69,7 @@ class Postman(Protocol):
         hooks: Sequence[HookInput] | None = None,
         action: ID | None = None,
         implementation: ID | None = None,
+        agent: ID | None = None,
         parent: ID | None = None,
         dependency: str | None = None,
         method: str | None = None,
@@ -92,7 +93,7 @@ class Postman(Protocol):
         these arguments, and neither has to know about the other's.
 
         Implementations may accept additional keyword arguments for whatever else
-        their transport can express — ``action_hash``, ``agent``, ``interface``,
+        their transport can express — ``action_hash``, ``interface``,
         ``resolution``, ``step`` on both, ``dependencies`` on GraphQL only. Those are
         deliberately not part of the protocol: nothing routes through it generically
         needs them, and requiring them would force every postman to model fields its
@@ -106,6 +107,9 @@ class Postman(Protocol):
             hooks: Lifecycle hooks to attach to the task.
             action: The action ID to assign to.
             implementation: The implementation ID to assign to directly.
+            agent: The agent ID the ``action`` is to run on, rather than on whichever
+                agent of it is free. A stateful action needs one (or an
+                ``implementation``, which names its agent already).
             parent: The parent task ID, for a call made from inside a running task.
                 Only the agent socket can express this.
             dependency: The dependency key to resolve, when running inside a resolved

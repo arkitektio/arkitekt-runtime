@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from arkitekt_runtime import messages
-from arkitekt_spec.actions import Execution
+from arkitekt_spec.actions import Execution, PortKind
 from arkitekt_runtime.types import TaskEventKind
 from arkitekt_runtime.task import Task
 
@@ -270,3 +270,39 @@ async def test_an_action_is_still_named_when_no_implementation_is() -> None:
 
     (call,) = postman.calls
     assert (call["action"], call["implementation"]) == ("action-1", None)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_goes_beside_the_action_as_its_id() -> None:
+    """This action, on that agent: what a stateful action is assigned by. A fetched agent
+    is reduced to its id like any target, and a call naming none sends none."""
+    postman = RecordingPostman()
+    task = _task(postman)
+    port = SimpleNamespace(key="agent", kind=PortKind.STRING, nullable=False, identifier=None, children=None, choices=None)
+    action = SimpleNamespace(id="action-1", args=(port,), returns=())
+
+    await task.acall(action, agent="its-own-argument", on_agent=_Target("agent-1"))
+    await task.acall_raw(action=action, on_agent="agent-2")
+    await task.acall(action, agent="its-own-argument")
+
+    named, raw, free = postman.calls
+    assert (named["action"], named["implementation"], named["agent"]) == ("action-1", None, "agent-1")
+    assert (raw["action"], raw["agent"]) == ("action-1", "agent-2")
+    # A port that happens to be called `agent` is filled by its keyword, and names no agent.
+    assert (named["args"], free["args"]) == ({"agent": "its-own-argument"},) * 2
+    assert "agent" not in free
+
+
+@pytest.mark.asyncio
+async def test_an_implementation_takes_no_agent_beside_it() -> None:
+    """An implementation names its agent already: a second one could only contradict it."""
+    postman = RecordingPostman()
+    task = _task(postman)
+    target = _Implementation("impl-1", action_id="action-1")
+
+    with pytest.raises(ValueError, match="already names its agent"):
+        await task.acall(target, on_agent="agent-1")
+    with pytest.raises(ValueError, match="already names its agent"):
+        await task.acall_raw(implementation=target, on_agent="agent-1")
+
+    assert postman.calls == []

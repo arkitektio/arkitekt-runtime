@@ -15,6 +15,28 @@ class AssignException(PostmanException):
     """
 
 
+#: How the server begins its refusal of a stateful action assigned by action alone.
+STATEFUL_NEEDS_AGENT = "A stateful action is assigned to a named agent"
+
+
+class StatefulNeedsAgent(AssignException):
+    """Raised when a stateful action was assigned without saying on which agent.
+
+    A stateful action keeps state on the agent that runs it, so "whichever agent is
+    free" is not an answer: the server refuses an assign that names such an action
+    alone. The message keeps what the server said and adds what to do about it.
+    """
+
+    def __init__(self, error: str) -> None:
+        """Keep the server's text, and say how the call names an agent."""
+        said = error.strip()
+        if not said.endswith((".", "!", "?")):
+            said += "."
+        super().__init__(
+            f"{said} Pass on_agent= to the call (or call an Implementation, which names its agent)."
+        )
+
+
 class RootOnlyAssignError(PostmanException):
     """Raised when a non-root call is handed to a transport that only creates roots.
 

@@ -150,6 +150,7 @@ class NoCallerPostman:
         hooks: "Sequence[HookInput] | None" = None,
         action: str | None = None,
         implementation: str | None = None,
+        agent: str | None = None,
         parent: str | None = None,
         dependency: str | None = None,
         method: str | None = None,

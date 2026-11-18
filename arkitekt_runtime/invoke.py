@@ -30,8 +30,9 @@ from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.postman import aexpand_returns, ashrink_args
 from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
 from arkitekt_spec.declare.structures.types import JSONSerializable
+from arkitekt_spec.scalars import ID, coerce_id
 
-__all__: list[str] = []
+__all__ = ["AgentTarget"]
 
 
 @runtime_checkable
@@ -42,6 +43,10 @@ class _Identified(Protocol):
     def id(self) -> Any:  # noqa: ANN401 -- an ID scalar
         """What the socket calls this."""
         ...
+
+
+#: The agent a call is to run on: its id, or anything fetched that carries one.
+AgentTarget = str | _Identified
 
 
 def _resolve_target(
@@ -74,6 +79,22 @@ def _action_id(action: CallTarget, implementation_id: Any) -> Any:  # noqa: ANN4
     return None if implementation_id is not None else action.id
 
 
+def _agent_id(agent: "AgentTarget | None", implementation_id: Any) -> ID | None:  # noqa: ANN401 -- an ID scalar
+    """The agent to name on the wire beside the action: its id, however it was given.
+
+    Raises:
+        ValueError: If an implementation is named as well: it already names its agent.
+    """
+    if agent is None:
+        return None
+    if implementation_id is not None:
+        raise ValueError(
+            "An implementation already names its agent, so on_agent= cannot be given with "
+            "it: call the implementation alone, or its action with on_agent=."
+        )
+    return coerce_id(agent)
+
+
 async def _aiterate_raw(
     *,
     postman: Postman,
@@ -93,11 +114,15 @@ async def _aiterate_raw(
     on_lost: str | None = None,
     max_resumes: int | None = None,
     inquire_after: float | None = None,
+    on_agent: "AgentTarget | None" = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the raw YIELD payloads of a remote call.
 
     Operates on already-serialized arguments and yields transport-level payloads;
     prefer :func:`_aiterate` unless you are deliberately working at that level.
+
+    Raises:
+        ValueError: If ``on_agent`` is given with an implementation.
     """
     async for returns in _astream_raw(
         postman,
@@ -107,6 +132,7 @@ async def _aiterate_raw(
         capture=capture,
         action_id=action_id,
         implementation_id=implementation_id,
+        agent_id=_agent_id(on_agent, implementation_id),
         parent=_resolve_parent(parent),
         escalate_to_interrupt=escalate_to_interrupt,
         cancel_timeout=cancel_timeout,
@@ -140,10 +166,12 @@ async def _acall_raw(
     on_lost: str | None = None,
     max_resumes: int | None = None,
     inquire_after: float | None = None,
+    on_agent: "AgentTarget | None" = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload, whatever the action returned
     """Run a call with already-serialized arguments and return the final YIELD payload.
 
     Raises:
+        ValueError: If ``on_agent`` is given with an implementation.
         ErrorCallError: If the backend reports a recoverable task error.
         CriticalCallError: If the backend reports a critical task error.
     """
@@ -166,6 +194,7 @@ async def _acall_raw(
         on_lost=on_lost,
         max_resumes=max_resumes,
         inquire_after=inquire_after,
+        on_agent=on_agent,
     ):
         returns = r
     return returns
@@ -189,16 +218,22 @@ async def _acall(
     on_lost: str | None = None,
     max_resumes: int | None = None,
     inquire_after: float | None = None,
+    on_agent: "AgentTarget | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
     """Call an action and return its expanded result.
 
+    ``on_agent`` is the agent the action is to run on (its id, or something fetched that
+    carries one) rather than whichever agent of it is free: what a stateful action needs.
+
     Raises:
-        ValueError: If the target is neither an action nor an implementation.
+        ValueError: If the target is neither an action nor an implementation, or is an
+            implementation and ``on_agent`` is given as well.
         ErrorCallError: If the backend reports a task error.
         CriticalCallError: If the backend reports a critical task error.
     """
     action, implementation_id = _resolve_target(target)
+    agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
 
     shrinked_args = await ashrink_args(
         action, args, kwargs, structure_registry=structure_registry
@@ -221,6 +256,7 @@ async def _acall(
         on_lost=on_lost,
         max_resumes=max_resumes,
         inquire_after=inquire_after,
+        on_agent=agent_id,
     )
     returns = await aexpand_returns(
         action, raw_returns, structure_registry=structure_registry
@@ -248,10 +284,12 @@ async def _aiterate(
     on_lost: str | None = None,
     max_resumes: int | None = None,
     inquire_after: float | None = None,
+    on_agent: "AgentTarget | None" = None,
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
-    """Stream a generator action's yields, each one expanded."""
+    """Stream a generator action's yields, each one expanded (``on_agent`` as in :func:`_acall`)."""
     action, implementation_id = _resolve_target(target)
+    agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
 
     shrinked_args = await ashrink_args(
         action, args, kwargs, structure_registry=structure_registry
@@ -274,6 +312,7 @@ async def _aiterate(
         on_lost=on_lost,
         max_resumes=max_resumes,
         inquire_after=inquire_after,
+        on_agent=agent_id,
     ):
         returns = await aexpand_returns(
             action, raw_returns, structure_registry=structure_registry

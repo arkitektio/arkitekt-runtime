@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Generator, Iterator
 
     from arkitekt_runtime.actors.helper import AssignmentHelper
+    from arkitekt_runtime.invoke import AgentTarget
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
@@ -497,6 +498,7 @@ class Task:
         on_lost: str | None = None,
         max_resumes: int | None = None,
         inquire_after: float | None = None,
+        on_agent: "AgentTarget | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
@@ -521,6 +523,13 @@ class Task:
         (:class:`~arkitekt_spec.declare.task.StateRequirement`); when it does not,
         nothing of the child runs and this raises
         :class:`~arkitekt_spec.declare.errors.StatePreconditionFailed`.
+
+        ``on_agent`` is the agent an ``Action`` is to run on (its id, or a fetched agent)
+        rather than whichever agent of it is free. A stateful action needs one: assigned
+        by action alone the server refuses it, and this raises
+        :class:`~arkitekt_runtime.postmans.errors.StatefulNeedsAgent`. An
+        ``Implementation`` names its agent already, so ``on_agent`` with one is a
+        ``ValueError``.
         """
         from arkitekt_runtime.invoke import _acall
 
@@ -542,6 +551,7 @@ class Task:
             on_lost=on_lost,
             max_resumes=max_resumes,
             inquire_after=inquire_after,
+            on_agent=on_agent,
             **kwargs,
         )
 
@@ -549,11 +559,12 @@ class Task:
         self,
         target: "CallTarget | ImplementationTarget",
         *args: Any,  # noqa: ANN401 -- the action's own arguments
+        on_agent: "AgentTarget | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
-        """Call an action as a child of this task, blocking for its result."""
+        """Call an action as a child of this task, blocking for its result (``on_agent`` as in :meth:`acall`)."""
         self._caller()  # refuse a local task here, not inside koil's loop machinery
-        return unkoil(self.acall, target, *args, **kwargs)
+        return unkoil(self.acall, target, *args, on_agent=on_agent, **kwargs)
 
     async def aiterate(
         self,
@@ -570,9 +581,10 @@ class Task:
         on_lost: str | None = None,
         max_resumes: int | None = None,
         inquire_after: float | None = None,
+        on_agent: "AgentTarget | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "AsyncGenerator[Any, None]":
-        """Stream a generator action's yields as a child of this task."""
+        """Stream a generator action's yields as a child of this task (``on_agent`` as in :meth:`acall`)."""
         from arkitekt_runtime.invoke import _aiterate
 
         postman, structure_registry, parent = self._caller()
@@ -593,6 +605,7 @@ class Task:
             on_lost=on_lost,
             max_resumes=max_resumes,
             inquire_after=inquire_after,
+            on_agent=on_agent,
             **kwargs,
         ):
             yield value
@@ -601,11 +614,12 @@ class Task:
         self,
         target: "CallTarget | ImplementationTarget",
         *args: Any,  # noqa: ANN401 -- the action's own arguments
+        on_agent: "AgentTarget | None" = None,
         **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
     ) -> "Generator[Any, None, None]":
-        """Stream a generator action's yields, blocking between them."""
+        """Stream a generator action's yields, blocking between them (``on_agent`` as in :meth:`acall`)."""
         self._caller()  # refuse a local task here, not inside koil's loop machinery
-        return unkoil_gen(self.aiterate, target, *args, **kwargs)
+        return unkoil_gen(self.aiterate, target, *args, on_agent=on_agent, **kwargs)
 
     async def acall_raw(
         self,
@@ -624,8 +638,12 @@ class Task:
         on_lost: str | None = None,
         max_resumes: int | None = None,
         inquire_after: float | None = None,
+        on_agent: "AgentTarget | None" = None,
     ) -> Any:  # noqa: ANN401 -- the raw backend payload
-        """Call with already-serialized arguments, as a child of this task."""
+        """Call with already-serialized arguments, as a child of this task.
+
+        ``on_agent`` goes with ``action``: this action, on that agent (see :meth:`acall`).
+        """
         from arkitekt_runtime.invoke import _acall_raw
 
         postman, _, parent = self._caller()
@@ -646,7 +664,29 @@ class Task:
             on_lost=on_lost,
             max_resumes=max_resumes,
             inquire_after=inquire_after,
+            on_agent=on_agent,
         )
+
+    async def acall_dependency_raw(
+        self,
+        dependency: str,
+        method: str,
+        kwargs: "dict[str, JSONSerializable] | None" = None,
+        *,
+        reference: str | None = None,
+        call_key: str | None = None,
+    ) -> Any:  # noqa: ANN401 -- the raw backend payload
+        """Call a method of a dependency bound to this task, with already-serialized arguments.
+
+        For a caller that learns its dependencies when it runs (a flow engine, whose steps
+        the flow names): an action that declares its dependencies takes them as parameters
+        instead. The call goes to the agent the dependency was bound to when this task was
+        assigned, so it needs no ``dynamic_calls``.
+        """
+        from arkitekt_runtime.calls import acall_dependency_raw
+
+        postman, _, parent = self._caller(calling=False)
+        return await acall_dependency_raw(dependency, method, kwargs or {}, postman=postman, parent=parent, reference=reference, call_key=call_key)
 
     async def aiterate_raw(
         self,
@@ -665,8 +705,9 @@ class Task:
         on_lost: str | None = None,
         max_resumes: int | None = None,
         inquire_after: float | None = None,
+        on_agent: "AgentTarget | None" = None,
     ) -> "AsyncGenerator[Any, None]":
-        """Stream with already-serialized arguments, as a child of this task."""
+        """Stream with already-serialized arguments, as a child of this task (``on_agent`` as in :meth:`acall_raw`)."""
         from arkitekt_runtime.invoke import _aiterate_raw
 
         postman, _, parent = self._caller()
@@ -687,6 +728,7 @@ class Task:
             on_lost=on_lost,
             max_resumes=max_resumes,
             inquire_after=inquire_after,
+            on_agent=on_agent,
         ):
             yield value
 

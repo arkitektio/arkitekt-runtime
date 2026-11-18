@@ -71,6 +71,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     capture: bool = False,
     action_id: ID | None = None,
     implementation_id: ID | None = None,
+    agent_id: ID | None = None,
     parent: ID | None = None,
     dependency: ID | None = None,
     method: str | None = None,
@@ -90,6 +91,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     GraphQL postman and the agent postman no longer share one (see
     :meth:`rekuest.postmans.types.Postman.aassign`), so each builds its own.
 
+    ``agent_id`` goes beside ``action_id``: this action, on that agent.
+
     Raises:
         ErrorCallError: If the backend reports a task error.
         CriticalCallError: If the backend reports a critical task error.
@@ -102,6 +105,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     """
     # Only when set: a postman from before holds and policies takes neither.
     asked: dict[str, Any] = {}
+    if agent_id is not None:
+        asked["agent"] = agent_id
     if prompt is not None:
         asked["prompt"] = prompt
     if policy is not None:
@@ -179,8 +184,12 @@ async def acall_dependency_raw(
     parent: Assign | None = None,
     capture: bool = False,
     call_policy: "CallPolicy | None" = None,
+    call_key: str | None = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload
     """Call a method on a dependency with already serialized arguments.
+
+    ``call_key`` names this one call within its parent, for a caller that keys its own calls
+    (a flow engine): a resumed parent finds the call again by it.
 
     A dependency method call is never a root, so it can only be originated over the
     agent socket — which is the postman bound while an actor body runs. Calling it from
@@ -202,6 +211,7 @@ async def acall_dependency_raw(
         parent=_resolve_parent(parent),
         dependency=dependency_key,
         method=method,
+        call_key=call_key,
         on_lost=call_policy.on_lost if call_policy else None,
         max_resumes=call_policy.max_resumes if call_policy else None,
         inquire_after=call_policy.inquire_after if call_policy else None,
