@@ -1574,7 +1574,7 @@ class BaseAgent(KoiledModel):
         what makes that comparison meaningful. Keys are sorted so that
         dictionary ordering cannot change the digest.
         """
-        agent_input = self.app_registry.to_implement_agent_input(
+        agent_input = self.app_registry.to_registered_agent_input(
             name=self.name, description=self.description
         )
         canonical = json.dumps(
@@ -2203,7 +2203,9 @@ class BaseAgent(KoiledModel):
         what this agent offers and its definition hash (the backend skips the
         reconciliation when it already holds that hash).
         """
-        agent_input = self.app_registry.to_implement_agent_input(
+        # As it is registered: a blok declared as its source goes without the ``self``
+        # dependency the registry built to check it, which the server works out itself.
+        agent_input = self.app_registry.to_registered_agent_input(
             name=self.name, description=self.description
         )
         # ``by_alias=False``: the aliases on the generated input models are the
