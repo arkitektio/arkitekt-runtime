@@ -21,6 +21,7 @@ from arkitekt_spec.declare.task import Task
 
 from .agent_helpers import run_assignment
 from arkitekt_runtime.local import MemoryAgentTransport
+from arkitekt_runtime.trace import current_traceparent, trace_scope
 
 HEAVY = {"rekuest", "rath", "websockets", "graphql", "fastapi", "fakts"}
 
@@ -80,6 +81,36 @@ async def test_the_agents_task_scopes_are_entered_around_an_assignment(func: Any
 
     assert await run_assignment(agent, _assign(func.__name__)) == {"return0": f"task-{func.__name__}"}
     assert CURRENT.get() is None
+
+
+TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+
+async def atraced() -> str:
+    """Reads the trace"""
+    return current_traceparent() or "none"
+
+
+def traced() -> str:
+    """Reads the trace, across the thread hop"""
+    return current_traceparent() or "none"
+
+
+@pytest.mark.parametrize("func", [atraced, traced])
+async def test_an_assignment_runs_in_the_trace_its_server_names(func: Any) -> None:  # noqa: ANN401
+    """Nothing of OpenTelemetry is set up here: the trace is passed on exactly as it came."""
+
+    def agent() -> BaseAgent:
+        registry = AppRegistry()
+        registry.register(func)
+        made = BaseAgent(transport=MemoryAgentTransport(), app_registry=registry, task_scopes=[trace_scope])
+        made.collect_from_registry()
+        return made
+
+    assigned = _assign(func.__name__).model_copy(update={"traceparent": TRACEPARENT})
+    assert await run_assignment(agent(), assigned) == {"return0": TRACEPARENT}
+    assert await run_assignment(agent(), _assign(func.__name__)) == {"return0": "none"}, "a task in no trace starts none"
+    assert current_traceparent() is None
 
 
 async def test_without_a_scope_nothing_is_entered() -> None:

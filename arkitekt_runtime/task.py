@@ -125,6 +125,11 @@ class Task:
         return self._helper.token
 
     @property
+    def traceparent(self) -> str | None:
+        """Where in a trace the task was assigned (W3C ``traceparent``); ``None`` where nobody traces."""
+        return self._helper.traceparent
+
+    @property
     def agent(self) -> Any:  # noqa: ANN401 - ActorContext
         """The agent running this task's actor; ``None`` for a :meth:`local` task.
 

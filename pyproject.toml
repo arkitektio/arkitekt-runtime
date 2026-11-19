@@ -15,6 +15,8 @@ dependencies = [
     "koil>=3.3.6",
     "janus>=2.0.0",
     "jsonpatch>=1.33",
+    # The API only: an assignment runs inside the trace its server names (arkitekt_runtime.trace).
+    "opentelemetry-api>=1.30",
 ]
 
 [project.optional-dependencies]

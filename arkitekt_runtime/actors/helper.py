@@ -263,3 +263,8 @@ class AssignmentHelper(BaseModel):
         when the implementation opted out of provenance (needs_token=False).
         """
         return self.assignment.token
+
+    @property
+    def traceparent(self) -> str | None:
+        """Where in a trace the task was assigned (W3C Trace Context), if anywhere."""
+        return self.assignment.traceparent

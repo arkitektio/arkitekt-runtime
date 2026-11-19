@@ -296,6 +296,10 @@ class Assign(Command):
         default=None,
         description="An opaque, signed provenance token attesting who caused this task and with which inputs. The agent forwards it untouched to downstream services; it does not validate it. None when the implementation opts out of provenance (needs_token=False).",
     )
+    traceparent: str | None = Field(
+        default=None,
+        description="The trace the task is part of, as a W3C `traceparent`: what the agent does for the task, and what it asks of others on its behalf, belongs to that trace. None where nobody traces.",
+    )
     resume: "Journal | None" = Field(
         default=None,
         description="Set when a workflow's agent died and the task is sent again to be resumed: what it recorded so far.",
@@ -1130,6 +1134,10 @@ class AssignRequest(JournaledMessage):
     max_resumes: int | None = Field(
         default=None,
         description="How often the child may be sent again (resumed or restarted) before it ends lost after all. Left out, the server's own limit applies.",
+    )
+    traceparent: str | None = Field(
+        default=None,
+        description="Where in the parent's trace the call was made, as a W3C `traceparent`: the child continues from there. Left out, the child continues the parent task's own.",
     )
 
 
