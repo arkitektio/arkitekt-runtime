@@ -43,6 +43,33 @@ class TaskEventLike(Protocol):
 
 
 @runtime_checkable
+class ReplaysCalls(Protocol):
+    """A postman that holds a resumed workflow to the calls its earlier run made."""
+
+    def begin_replay(self, parent: str, calls: Sequence[str], code_changed: bool = False) -> None:
+        """A resumed run of ``parent`` begins: these are the call keys it must make again."""
+        ...
+
+    def unclaimed_calls(self, parent: str) -> list[str]:
+        """The recorded call keys the resumed run of ``parent`` has not made again."""
+        ...
+
+
+@runtime_checkable
+class OrdersCalls(Protocol):
+    """A postman that keys a parent's calls in the order they were made, not the order
+    their arguments finished serializing in."""
+
+    def reserve_call(self, parent: str) -> int:
+        """Take the next place among ``parent``'s calls. Before anything is awaited."""
+        ...
+
+    def release_call(self, parent: str, ticket: int) -> None:
+        """Give a place up (the call was keyed, or never got that far). Idempotent."""
+        ...
+
+
+@runtime_checkable
 class Postman(Protocol):
     """Postman
 

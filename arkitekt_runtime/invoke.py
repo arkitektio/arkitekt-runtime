@@ -21,7 +21,7 @@ was a deferred error. Every entry point is private: what is public is the two cl
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast, runtime_checkable
 
-from arkitekt_runtime.calls import _astream_raw, _resolve_parent
+from arkitekt_runtime.calls import _astream_raw, _resolve_parent, release_call, reserve_call
 from arkitekt_runtime.messages import Assign
 from arkitekt_runtime.postmans.types import Postman
 from arkitekt_runtime.types import TaskPolicy
@@ -115,6 +115,7 @@ async def _aiterate_raw(
     max_resumes: int | None = None,
     inquire_after: float | None = None,
     on_agent: "AgentTarget | None" = None,
+    ticket: int | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the raw YIELD payloads of a remote call.
 
@@ -143,6 +144,7 @@ async def _aiterate_raw(
         on_lost=on_lost,
         max_resumes=max_resumes,
         inquire_after=inquire_after,
+        ticket=ticket,
     ):
         yield returns
 
@@ -167,6 +169,7 @@ async def _acall_raw(
     max_resumes: int | None = None,
     inquire_after: float | None = None,
     on_agent: "AgentTarget | None" = None,
+    ticket: int | None = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload, whatever the action returned
     """Run a call with already-serialized arguments and return the final YIELD payload.
 
@@ -195,6 +198,7 @@ async def _acall_raw(
         max_resumes=max_resumes,
         inquire_after=inquire_after,
         on_agent=on_agent,
+        ticket=ticket,
     ):
         returns = r
     return returns
@@ -235,29 +239,34 @@ async def _acall(
     action, implementation_id = _resolve_target(target)
     agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
 
-    shrinked_args = await ashrink_args(
-        action, args, kwargs, structure_registry=structure_registry
-    )
-    raw_returns = await _acall_raw(
-        postman=postman,
-        kwargs=shrinked_args,
-        action_id=_action_id(action, implementation_id),
-        implementation_id=implementation_id,
-        parent=parent,
-        reference=reference,
-        hooks=hooks,
-        capture=capture,
-        escalate_to_interrupt=escalate_to_interrupt,
-        cancel_timeout=cancel_timeout,
-        call_key=call_key,
-        prompt=prompt,
-        policy=policy,
-        state_requires=state_requires,
-        on_lost=on_lost,
-        max_resumes=max_resumes,
-        inquire_after=inquire_after,
-        on_agent=agent_id,
-    )
+    ticket = reserve_call(postman, parent)
+    try:
+        shrinked_args = await ashrink_args(
+            action, args, kwargs, structure_registry=structure_registry
+        )
+        raw_returns = await _acall_raw(
+            postman=postman,
+            kwargs=shrinked_args,
+            action_id=_action_id(action, implementation_id),
+            implementation_id=implementation_id,
+            parent=parent,
+            reference=reference,
+            hooks=hooks,
+            capture=capture,
+            escalate_to_interrupt=escalate_to_interrupt,
+            cancel_timeout=cancel_timeout,
+            call_key=call_key,
+            prompt=prompt,
+            policy=policy,
+            state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
+            on_agent=agent_id,
+            ticket=ticket,
+        )
+    finally:
+        release_call(postman, parent, ticket)
     returns = await aexpand_returns(
         action, raw_returns, structure_registry=structure_registry
     )
@@ -291,33 +300,38 @@ async def _aiterate(
     action, implementation_id = _resolve_target(target)
     agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
 
-    shrinked_args = await ashrink_args(
-        action, args, kwargs, structure_registry=structure_registry
-    )
-    async for raw_returns in _aiterate_raw(
-        postman=postman,
-        kwargs=shrinked_args,
-        action_id=_action_id(action, implementation_id),
-        implementation_id=implementation_id,
-        parent=parent,
-        reference=reference,
-        hooks=hooks,
-        capture=capture,
-        escalate_to_interrupt=escalate_to_interrupt,
-        cancel_timeout=cancel_timeout,
-        call_key=call_key,
-        prompt=prompt,
-        policy=policy,
-        state_requires=state_requires,
-        on_lost=on_lost,
-        max_resumes=max_resumes,
-        inquire_after=inquire_after,
-        on_agent=agent_id,
-    ):
-        returns = await aexpand_returns(
-            action, raw_returns, structure_registry=structure_registry
+    ticket = reserve_call(postman, parent)
+    try:
+        shrinked_args = await ashrink_args(
+            action, args, kwargs, structure_registry=structure_registry
         )
-        if len(returns) == 1:
-            yield returns[0]
-        else:
-            yield returns
+        async for raw_returns in _aiterate_raw(
+            postman=postman,
+            kwargs=shrinked_args,
+            action_id=_action_id(action, implementation_id),
+            implementation_id=implementation_id,
+            parent=parent,
+            reference=reference,
+            hooks=hooks,
+            capture=capture,
+            escalate_to_interrupt=escalate_to_interrupt,
+            cancel_timeout=cancel_timeout,
+            call_key=call_key,
+            prompt=prompt,
+            policy=policy,
+            state_requires=state_requires,
+            on_lost=on_lost,
+            max_resumes=max_resumes,
+            inquire_after=inquire_after,
+            on_agent=agent_id,
+            ticket=ticket,
+        ):
+            returns = await aexpand_returns(
+                action, raw_returns, structure_registry=structure_registry
+            )
+            if len(returns) == 1:
+                yield returns[0]
+            else:
+                yield returns
+    finally:
+        release_call(postman, parent, ticket)

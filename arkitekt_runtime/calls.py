@@ -35,7 +35,7 @@ from arkitekt_spec.declare.errors import (
 from arkitekt_spec.declare.definition.policy import CallPolicy
 from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
 from arkitekt_runtime.messages import Assign, JSONSerializable
-from arkitekt_runtime.postmans.types import Postman
+from arkitekt_runtime.postmans.types import OrdersCalls, Postman
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.actor import (
     aexpand_actor_returns,
@@ -62,6 +62,23 @@ def _resolve_parent(parent: Assign | None) -> ID | None:
     return coerce_id(parent.task) if parent is not None else None
 
 
+def reserve_call(postman: Postman, parent: Assign | None) -> int | None:
+    """A child call's place among its parent's calls, taken before anything is awaited.
+
+    Call keys count how often a parent made a call; taken here, that count follows the
+    order the calls were made in, whatever their arguments take to serialize.
+    """
+    if parent is None or not isinstance(postman, OrdersCalls):
+        return None
+    return postman.reserve_call(str(parent.task))
+
+
+def release_call(postman: Postman, parent: Assign | None, ticket: int | None) -> None:
+    """Give the place up: the call was keyed, or failed before it was."""
+    if ticket is not None and parent is not None and isinstance(postman, OrdersCalls):
+        postman.release_call(str(parent.task), ticket)
+
+
 async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from the protocol
     postman: Postman,
     *,
@@ -84,6 +101,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
     on_lost: str | None = None,
     max_resumes: int | None = None,
     inquire_after: float | None = None,
+    ticket: int | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Stream the YIELD payloads of a task, returning on DONE.
 
@@ -119,6 +137,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         asked["max_resumes"] = max_resumes
     if inquire_after is not None:
         asked["inquire_after"] = inquire_after
+    if ticket is not None:
+        asked["ticket"] = ticket
     async for i in postman.aassign(
         args=args or {},
         capture=capture,
@@ -185,6 +205,7 @@ async def acall_dependency_raw(
     capture: bool = False,
     call_policy: "CallPolicy | None" = None,
     call_key: str | None = None,
+    ticket: int | None = None,
 ) -> Any:  # noqa: ANN401 -- the raw backend payload
     """Call a method on a dependency with already serialized arguments.
 
@@ -215,6 +236,7 @@ async def acall_dependency_raw(
         on_lost=call_policy.on_lost if call_policy else None,
         max_resumes=call_policy.max_resumes if call_policy else None,
         inquire_after=call_policy.inquire_after if call_policy else None,
+        ticket=ticket,
     ):
         returns = r
 
@@ -263,21 +285,25 @@ async def acall_dependency(
 ) -> Any:  # noqa: ANN401 -- whatever the method returns, expanded
     """Call a method on a dependency and return expanded Python values."""
 
-    shrinked_args = await ashrink_actor_args(
-        definition, args, kwargs, structure_registry=structure_registry
-    )
-
-    raw_returns = await acall_dependency_raw(
-        kwargs=shrinked_args,
-        dependency_key=dependency_key,
-        method=method,
-        reference=reference,
-        hooks=hooks,
-        parent=parent,
-        capture=capture,
-        postman=postman,
-        call_policy=call_policy,
-    )
+    ticket = reserve_call(postman, parent)
+    try:
+        shrinked_args = await ashrink_actor_args(
+            definition, args, kwargs, structure_registry=structure_registry
+        )
+        raw_returns = await acall_dependency_raw(
+            kwargs=shrinked_args,
+            dependency_key=dependency_key,
+            method=method,
+            reference=reference,
+            hooks=hooks,
+            parent=parent,
+            capture=capture,
+            postman=postman,
+            call_policy=call_policy,
+            ticket=ticket,
+        )
+    finally:
+        release_call(postman, parent, ticket)
 
     returns = await aexpand_actor_returns(
         definition, raw_returns, structure_registry
@@ -311,26 +337,31 @@ async def aiterate_dependency(
     **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator method of a dependency, each yield expanded."""
-    shrinked_args = await ashrink_actor_args(
-        definition, args, kwargs, structure_registry=structure_registry
-    )
-    async for raw_returns in _astream_raw(
-        postman,
-        args=shrinked_args,
-        reference=reference,
-        hooks=hooks,
-        capture=capture,
-        parent=_resolve_parent(parent),
-        dependency=dependency_key,
-        method=method,
-        on_lost=call_policy.on_lost if call_policy else None,
-        max_resumes=call_policy.max_resumes if call_policy else None,
-        inquire_after=call_policy.inquire_after if call_policy else None,
-    ):
-        returns = await aexpand_actor_returns(
-            definition, raw_returns, structure_registry
+    ticket = reserve_call(postman, parent)
+    try:
+        shrinked_args = await ashrink_actor_args(
+            definition, args, kwargs, structure_registry=structure_registry
         )
-        yield returns[0] if len(returns) == 1 else returns
+        async for raw_returns in _astream_raw(
+            postman,
+            args=shrinked_args,
+            reference=reference,
+            hooks=hooks,
+            capture=capture,
+            parent=_resolve_parent(parent),
+            dependency=dependency_key,
+            method=method,
+            on_lost=call_policy.on_lost if call_policy else None,
+            max_resumes=call_policy.max_resumes if call_policy else None,
+            inquire_after=call_policy.inquire_after if call_policy else None,
+            ticket=ticket,
+        ):
+            returns = await aexpand_actor_returns(
+                definition, raw_returns, structure_registry
+            )
+            yield returns[0] if len(returns) == 1 else returns
+    finally:
+        release_call(postman, parent, ticket)
 
 
 def iterate_dependency(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401

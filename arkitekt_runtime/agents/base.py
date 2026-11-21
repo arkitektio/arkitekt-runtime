@@ -66,6 +66,7 @@ from arkitekt_spec.declare.agents.connection import (
     TaskListener,
 )
 from arkitekt_runtime.agents.policy import ConnectionPolicy
+from arkitekt_runtime.postmans.types import ReplaysCalls
 from arkitekt_spec.declare.agents.hooks.registry import (
     ShutdownHook,
     StartupHook,
@@ -1154,6 +1155,10 @@ class BaseAgent(KoiledModel):
             return
         if message.resume is not None:
             message = self._complete_resume(message)
+            assert message.resume is not None
+            postman = self.caller_postman
+            if isinstance(postman, ReplaysCalls):
+                postman.begin_replay(message.task, message.resume.calls, message.resume.code_changed)
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()

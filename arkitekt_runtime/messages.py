@@ -761,12 +761,15 @@ class RecordedEffect(BaseModel):
 class Journal(BaseModel):
     """What a workflow recorded before its agent died: handed back so the resume can replay it.
 
-    Calls it made are not listed: re-issued with the same call key, each finds its child
-    again (the server answers with the child's events so far).
+    A call it made is re-issued with the same call key and finds its child again (the
+    server answers with the child's events so far). ``calls`` lists those keys: the resumed
+    run must make them again before it makes any other call.
     """
 
     last_step: int = Field(default=0, description="The last step the task took; new reports continue after it.")
     effects: list[RecordedEffect] = Field(default_factory=list)
+    calls: list[str] = Field(default_factory=list, description="The call keys of the children it has, in the order of their steps.")
+    code_changed: bool = Field(default=False, description="Whether the workflow's code differs from the code this run started on. Information for the error of a run that takes another path; it does not stop the resume.")
 
 
 class Effect(FromAgentEvent):
