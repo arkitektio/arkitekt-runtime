@@ -1,11 +1,9 @@
+import contextlib
 import dataclasses
 import functools
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, overload, SupportsIndex
-from collections.abc import Callable, Iterable
-
-import contextlib
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
+from typing import TYPE_CHECKING, Any, Generic, SupportsIndex, TypeVar, cast, overload
 
 if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
@@ -15,9 +13,10 @@ from arkitekt_spec.actions import (
     ReturnPortInput,
     StateDefinitionInput,
 )
-from arkitekt_runtime.state.gate import TaskClosedError, TaskGate
 from arkitekt_spec.declare.state.publish import Patch, StateHolder
 from arkitekt_spec.declare.structures.types import StateDeclaration
+
+from arkitekt_runtime.state.gate import TaskClosedError, TaskGate
 
 # --- JSON Pointer Utilities (RFC 6901) ---
 
@@ -90,7 +89,9 @@ class StateConfig:
     """Where patches go: the agent that adopted the state. None until then."""
     active: Mutation | None = dataclasses.field(default=None, init=False, compare=False)
     """The mutation a task's write view is making right now, for one operation."""
-    pending: "list[Patch] | None" = dataclasses.field(default=None, init=False, compare=False)
+    pending: "list[Patch] | None" = dataclasses.field(
+        default=None, init=False, compare=False
+    )
     """The update being put together (see :meth:`updating`); None while there is none."""
     lock: threading.RLock = dataclasses.field(
         default_factory=threading.RLock, init=False, compare=False, repr=False
@@ -532,7 +533,9 @@ class EventedList(list[T], Generic[T]):
             child_port = _resolve_child_port(self._config, self._port, idx)
 
             # Wrap new value
-            item = make_evented(cast("T", value), self._config, full_path, port=child_port)
+            item = make_evented(
+                cast("T", value), self._config, full_path, port=child_port
+            )
             super().__setitem__(idx, item)
             _publish_patch(
                 self._config,

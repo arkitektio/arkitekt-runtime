@@ -1,12 +1,14 @@
 """Test the serialization of enums with partial functions"""
 
-import pytest
-from arkitekt_spec.declare.definition.define import prepare_definition
-from arkitekt_runtime.structures.serialization.actor import expand_inputs
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 from enum import Enum, member
 from functools import partial
+
+import pytest
+from arkitekt_spec.declare.definition.define import prepare_definition
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+
 from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.structures.serialization.actor import expand_inputs
 
 
 def alert_function_a(x: int) -> str:

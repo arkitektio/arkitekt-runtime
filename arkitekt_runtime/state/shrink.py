@@ -1,11 +1,13 @@
 """Shrink a state using a schema and a structure registry"""
 
 from typing import Any
-from arkitekt_runtime.actors.types import Shelver
+
 from arkitekt_spec.actions import StateDefinitionInput
-from arkitekt_runtime.messages import JSONSerializable
 from arkitekt_spec.declare.protocol.types import AnyState
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.messages import JSONSerializable
 from arkitekt_runtime.structures.serialization.actor import ashrink_return
 
 

@@ -1,16 +1,17 @@
 """Per-call context threaded through the kind-dispatch tables."""
 
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
-from collections.abc import Awaitable, Callable, Sequence
 
-from arkitekt_spec.scalars import ID
-from arkitekt_runtime.actors.types import Shelver
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
-from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.declare.structures.types import FullFilledStructure, JSONSerializable
+from arkitekt_spec.declare.targets import SerializablePort
+from arkitekt_spec.scalars import ID
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
 
 
 @dataclass(frozen=True)

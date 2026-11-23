@@ -13,9 +13,10 @@ from arkitekt_runtime.actors.actify import reactify
 from arkitekt_runtime.actors.types import Actor, ActorBuilder
 
 if TYPE_CHECKING:
-    from arkitekt_runtime.actors.types import Agent
     from arkitekt_spec.declare.actors.types import RegisterConfig
     from arkitekt_spec.declare.app import AppRegistry
+
+    from arkitekt_runtime.actors.types import Agent
 
 
 class DeclaredActorBuilder:
@@ -44,5 +45,7 @@ def actor_builder_for(registry: "AppRegistry", interface: str) -> DeclaredActorB
     """
     declared = registry.get_declared_implementation(interface)
     actifier = declared.actifier or reactify
-    _, _, builder = actifier(declared.function, registry.structure_registry, declared.config)
+    _, _, builder = actifier(
+        declared.function, registry.structure_registry, declared.config
+    )
     return DeclaredActorBuilder(builder, declared.config)

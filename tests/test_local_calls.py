@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_spec.declare.task import Task
 
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import (
@@ -13,8 +15,6 @@ from arkitekt_runtime.local import (
     aiterate_local,
     local_agent,
 )
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.task import Task
 
 
 def add(a: int, b: int = 2) -> int:
@@ -83,23 +83,33 @@ async def agent() -> AsyncIterator[BaseAgent]:
 
 
 @pytest.mark.parametrize("interface", ["add", "aadd"])
-async def test_a_function_is_called_with_python_values(agent: BaseAgent, interface: str) -> None:
+async def test_a_function_is_called_with_python_values(
+    agent: BaseAgent, interface: str
+) -> None:
     assert await acall_local(agent, interface, 1) == 3
     assert await acall_local(agent, interface, a=1, b=5) == 6
 
 
 @pytest.mark.parametrize("interface", ["count", "acount"])
 async def test_a_generator_yields_each_result(agent: BaseAgent, interface: str) -> None:
-    assert [value async for value in aiterate_local(agent, interface, to=3)] == [0, 1, 2]
+    assert [value async for value in aiterate_local(agent, interface, to=3)] == [
+        0,
+        1,
+        2,
+    ]
     assert await acall_local(agent, interface, to=3) == 2
 
 
-async def test_several_results_come_back_as_a_tuple_and_none_as_none(agent: BaseAgent) -> None:
+async def test_several_results_come_back_as_a_tuple_and_none_as_none(
+    agent: BaseAgent,
+) -> None:
     assert await acall_local(agent, "both", "abc") == ("ABC", 3)
     assert await acall_local(agent, "nothing") is None
 
 
-async def test_a_raising_action_raises_what_a_server_would_be_told(agent: BaseAgent) -> None:
+async def test_a_raising_action_raises_what_a_server_would_be_told(
+    agent: BaseAgent,
+) -> None:
     with pytest.raises(LocalCallError, match="cannot take x") as raised:
         await acall_local(agent, "broken", "x")
     assert raised.value.interface == "broken"
@@ -112,14 +122,18 @@ async def test_the_arguments_cross_the_ports(agent: BaseAgent) -> None:
         await acall_local(agent, "add", "not a number")
 
 
-async def test_an_unknown_action_and_an_unknown_argument_say_what_exists(agent: BaseAgent) -> None:
+async def test_an_unknown_action_and_an_unknown_argument_say_what_exists(
+    agent: BaseAgent,
+) -> None:
     with pytest.raises(KeyError, match="no action 'missing'.*add"):
         await acall_local(agent, "missing")
     with pytest.raises(TypeError, match="no argument 'c'.*a, b"):
         await acall_local(agent, "add", a=1, c=2)
 
 
-async def test_a_memory_structure_is_passed_and_returned_as_itself(agent: BaseAgent) -> None:
+async def test_a_memory_structure_is_passed_and_returned_as_itself(
+    agent: BaseAgent,
+) -> None:
     result = await acall_local(agent, "brighten", Canvas([1, 2]))
     assert isinstance(result, Canvas)
     assert result.pixels == [2, 3]
@@ -141,4 +155,7 @@ async def test_an_agent_on_another_transport_is_refused() -> None:
 
 async def test_a_hold_in_process_carries_on_approved(agent: BaseAgent) -> None:
     """Nobody decides in-process: the hold is approved, as a local task's is."""
-    assert await asyncio.wait_for(acall_local(agent, "asks_first", "x"), timeout=5) == "x:True:True"
+    assert (
+        await asyncio.wait_for(acall_local(agent, "asks_first", "x"), timeout=5)
+        == "x:True:True"
+    )

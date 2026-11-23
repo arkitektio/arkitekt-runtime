@@ -5,17 +5,17 @@ for managing the lifecycle of the actors that are spawned from it.
 
 """
 
-import hashlib
-import json
-
 import asyncio
-import dataclasses
 import contextlib
 import copy
+import dataclasses
+import hashlib
+import json
 import logging
 import time
 import uuid
 import warnings
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Iterator, Sequence
 from types import TracebackType
 from typing import (
     TYPE_CHECKING,
@@ -23,41 +23,10 @@ from typing import (
     ClassVar,
     Self,
 )
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Iterator, Sequence
+
 import janus
 import jsonpatch  # type: ignore[import-untyped]
-from pydantic import ConfigDict, Field, PrivateAttr
-
-from arkitekt_spec.declare.agents.types import BoundApp
-from koil.composition import KoiledModel
-from arkitekt_runtime.actors.build import actor_builder_for
-from arkitekt_runtime.agents.hardware import detect_hardware
-from arkitekt_runtime.agents.hooks.materialize import materialize_hook
-from arkitekt_runtime import messages
-from arkitekt_runtime.actors.types import Actor
-from arkitekt_spec.declare.agents.errors import (
-    AgentException,
-    MissingServiceWarning,
-    NoCallerError,
-    ProvisionException,
-)
-from arkitekt_runtime.agents.dataclasses import (
-    QueuedAssign,
-    QueuedMessage,
-    QueuedRead,
-    QueuedUpdate,
-    QueuedStep,
-    RevisedState,
-)
-from arkitekt_runtime.agents.journal import (
-    Journal,
-    JournalEntry,
-    TaskGate,
-    is_probe_task,
-    task_of,
-)
-from arkitekt_runtime.task_scope import current_task_id, task_id_scope
-from arkitekt_spec.declare.agents.types import AppContext, T
+from arkitekt_spec.actions import StateDefinitionInput
 from arkitekt_spec.declare.agents.connection import (
     ConnectionListener,
     ConnectionState,
@@ -65,30 +34,60 @@ from arkitekt_spec.declare.agents.connection import (
     TaskEventKind,
     TaskListener,
 )
-from arkitekt_runtime.agents.policy import ConnectionPolicy
-from arkitekt_runtime.postmans.types import ReplaysCalls
+from arkitekt_spec.declare.agents.errors import (
+    AgentException,
+    MissingServiceWarning,
+    NoCallerError,
+    ProvisionException,
+)
 from arkitekt_spec.declare.agents.hooks.registry import (
     ShutdownHook,
     StartupHook,
     StartupHookReturns,
 )
-from arkitekt_runtime.agents.lock import TaskLock
+from arkitekt_spec.declare.agents.types import AppContext, BoundApp, T
 from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_runtime.agents.transport.types import AgentTransport, HandshakeParams
 from arkitekt_spec.declare.catalogs import CatalogWarning
-from arkitekt_runtime.agents.backend import AgentBackend, LocalAgentBackend
-from arkitekt_spec.actions import StateDefinitionInput
 from arkitekt_spec.declare.protocol.types import AnyState
-from arkitekt_spec.scalars import Identifier
-from arkitekt_runtime.state.observable import Mutation, adopt, evented
-from arkitekt_runtime.state.write import write_view
 from arkitekt_spec.declare.state.publish import SHUTDOWN, Patch
-from arkitekt_runtime.state.readonly import read_only_view
-from arkitekt_runtime.state.expand import aexpand_state
-from arkitekt_runtime.state.shrink import ashrink_state
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.actor import ashrink_return
 from arkitekt_spec.declare.structures.types import JSONSerializable
+from arkitekt_spec.scalars import Identifier
+from koil.composition import KoiledModel
+from pydantic import ConfigDict, Field, PrivateAttr
+
+from arkitekt_runtime import messages
+from arkitekt_runtime.actors.build import actor_builder_for
+from arkitekt_runtime.actors.types import Actor
+from arkitekt_runtime.agents.backend import AgentBackend, LocalAgentBackend
+from arkitekt_runtime.agents.dataclasses import (
+    QueuedAssign,
+    QueuedMessage,
+    QueuedRead,
+    QueuedStep,
+    QueuedUpdate,
+    RevisedState,
+)
+from arkitekt_runtime.agents.hardware import detect_hardware
+from arkitekt_runtime.agents.hooks.materialize import materialize_hook
+from arkitekt_runtime.agents.journal import (
+    Journal,
+    JournalEntry,
+    TaskGate,
+    is_probe_task,
+    task_of,
+)
+from arkitekt_runtime.agents.lock import TaskLock
+from arkitekt_runtime.agents.policy import ConnectionPolicy
+from arkitekt_runtime.agents.transport.types import AgentTransport, HandshakeParams
+from arkitekt_runtime.postmans.types import ReplaysCalls
+from arkitekt_runtime.state.expand import aexpand_state
+from arkitekt_runtime.state.observable import Mutation, adopt, evented
+from arkitekt_runtime.state.readonly import read_only_view
+from arkitekt_runtime.state.shrink import ashrink_state
+from arkitekt_runtime.state.write import write_view
+from arkitekt_runtime.structures.serialization.actor import ashrink_return
+from arkitekt_runtime.task_scope import current_task_id, task_id_scope
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +114,11 @@ __all__ = [
 
 
 if TYPE_CHECKING:
-    from arkitekt_runtime.postmans.types import Postman, TaskEventLike
     from types import TracebackType
 
     from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
+
+    from arkitekt_runtime.postmans.types import Postman, TaskEventLike
     from arkitekt_runtime.types import TaskPolicy
 
 
@@ -295,9 +295,7 @@ class BaseAgent(KoiledModel):
 
     _connected_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
     """Set when the server acknowledges the agent (an ``Init`` message is received)."""
-    _receiver: AsyncIterator[messages.ToAgentMessage] | None = PrivateAttr(
-        default=None
-    )
+    _receiver: AsyncIterator[messages.ToAgentMessage] | None = PrivateAttr(default=None)
     """The live transport message stream, shared between ``aconnect`` and ``aloop``."""
     _consume_task: asyncio.Task[None] | None = PrivateAttr(default=None)
     """The task consuming ``_receiver``: started by ``aconnect`` (the activation that
@@ -432,7 +430,6 @@ class BaseAgent(KoiledModel):
         """Wire the postman calls to other actions go through."""
         self._caller_postman = postman
 
-
     async def alock(self, key: str, task: str) -> None:
         """Tell the backend a task has acquired a lock.
 
@@ -531,7 +528,9 @@ class BaseAgent(KoiledModel):
             try:
                 await self._aemit(item.message)
             except Exception as e:
-                logger.error("Could not send %s", type(item.message).__name__, exc_info=True)
+                logger.error(
+                    "Could not send %s", type(item.message).__name__, exc_info=True
+                )
                 if item.waiter is not None and not item.waiter.done():
                     item.waiter.set_exception(e)
                 return
@@ -544,12 +543,16 @@ class BaseAgent(KoiledModel):
             try:
                 self._journal.record_assign(item.assign, item.action_key)
             except Exception:
-                logger.error("Could not record assignment %s", item.assign.task, exc_info=True)
+                logger.error(
+                    "Could not record assignment %s", item.assign.task, exc_info=True
+                )
         else:
             try:
                 await self._aprocess_update(item)
             except Exception:
-                logger.error("Could not publish a patch of %s", item.interface, exc_info=True)
+                logger.error(
+                    "Could not publish a patch of %s", item.interface, exc_info=True
+                )
 
     def _on_processor(self) -> bool:
         """Whether we are running inside the ordered queue's processor."""
@@ -579,14 +582,18 @@ class BaseAgent(KoiledModel):
         queue.async_q.put_nowait(QueuedStep(task=task, waiter=waiter))
         return await waiter
 
-    def _read_shrunk_states(self, interfaces: tuple[str, ...]) -> dict[str, JSONSerializable]:
+    def _read_shrunk_states(
+        self, interfaces: tuple[str, ...]
+    ) -> dict[str, JSONSerializable]:
         return {
             interface: copy.deepcopy(self._current_shrunk_states[interface])
             for interface in interfaces
             if interface in self._current_shrunk_states
         }
 
-    async def aread_states(self, interfaces: Sequence[str]) -> dict[str, JSONSerializable]:
+    async def aread_states(
+        self, interfaces: Sequence[str]
+    ) -> dict[str, JSONSerializable]:
         """The named states as the server knows them: shrunk, as their patches carry
         them, with every change made before this call applied. A state this agent does
         not have is left out.
@@ -598,7 +605,9 @@ class BaseAgent(KoiledModel):
         queue = self._event_queue
         if queue is None or self._on_processor():
             return self._read_shrunk_states(names)
-        waiter: asyncio.Future[dict[str, JSONSerializable]] = asyncio.get_running_loop().create_future()
+        waiter: asyncio.Future[dict[str, JSONSerializable]] = (
+            asyncio.get_running_loop().create_future()
+        )
         queue.async_q.put_nowait(QueuedRead(interfaces=names, waiter=waiter))
         return await waiter
 
@@ -633,7 +642,9 @@ class BaseAgent(KoiledModel):
             if patch.correlation_id is None and patch.lifecycle is None:
                 # Outside any task: the agent's own phase, if it is in one.
                 patch.lifecycle = self._patch_lifecycle
-        self._event_queue.sync_q.put(QueuedUpdate(interface=interface, patches=list(patches)))
+        self._event_queue.sync_q.put(
+            QueuedUpdate(interface=interface, patches=list(patches))
+        )
 
     @contextlib.contextmanager
     def _in_lifecycle(self, lifecycle: str) -> Iterator[None]:
@@ -662,7 +673,9 @@ class BaseAgent(KoiledModel):
             with task_id_scope(patch.correlation_id):
                 shrunk_value = await self._ashrink_patch_value(interface, patch)
             self._aapply_patch_to_shrunk_state(interface, patch, shrunk_value)
-            ops.append(messages.StateOp(op=patch.op, path=patch.path, value=shrunk_value))
+            ops.append(
+                messages.StateOp(op=patch.op, path=patch.path, value=shrunk_value)
+            )
 
         self.global_revision += 1
         if self.global_revision % self.snapshot_interval == 0:
@@ -780,7 +793,9 @@ class BaseAgent(KoiledModel):
         """
         if self.bound_app is None:
             return
-        for service, interfaces in sorted(self.app_registry.required_services().items()):
+        for service, interfaces in sorted(
+            self.app_registry.required_services().items()
+        ):
             if service not in self.bound_app.services:
                 warnings.warn(
                     f"{', '.join(sorted(interfaces))} use structures of the "
@@ -867,7 +882,9 @@ class BaseAgent(KoiledModel):
         """
         label = await value.aget_label() if hasattr(value, "aget_label") else None
         description = (
-            await value.aget_description() if hasattr(value, "aget_description") else None
+            await value.aget_description()
+            if hasattr(value, "aget_description")
+            else None
         )
         frame = self._shelve_frame(
             identifier, value, label, description, current_task_id.get()
@@ -903,7 +920,9 @@ class BaseAgent(KoiledModel):
         try:
             return self.shelve[key]
         except KeyError:
-            raise AgentException(f"Drawer {key} is not in this agent's shelve") from None
+            raise AgentException(
+                f"Drawer {key} is not in this agent's shelve"
+            ) from None
 
     async def process(self, message: messages.ToAgentMessage) -> None:
         """Route one inbound message to the concern that owns it.
@@ -998,9 +1017,13 @@ class BaseAgent(KoiledModel):
         if task in self.managed_assignments:
             gate = self._task_gates.get(task)
             if gate is not None and gate.closed:
-                return messages.TaskStatus.ENDED  # its end is reported; the books follow
+                return (
+                    messages.TaskStatus.ENDED
+                )  # its end is reported; the books follow
             reported = self._task_reports.get(task)
-            return reported.status if reported is not None else messages.TaskStatus.WAITING
+            return (
+                reported.status if reported is not None else messages.TaskStatus.WAITING
+            )
         if any(
             isinstance(held, messages.Assign) and held.task == task
             for held in self._held_provider_messages
@@ -1023,7 +1046,9 @@ class BaseAgent(KoiledModel):
             for message in self._held_provider_messages
             if isinstance(message, messages.Assign)
         ]
-        return list(dict.fromkeys([*self.managed_assignments, *held, *self._finished_tasks]))
+        return list(
+            dict.fromkeys([*self.managed_assignments, *held, *self._finished_tasks])
+        )
 
     async def _aanswer_inquiry(self, inquiry: messages.Inquire) -> None:
         """Answer at once, straight to the transport: an answer is not a report, has no
@@ -1044,7 +1069,9 @@ class BaseAgent(KoiledModel):
     def _note_report(self, message: messages.FromAgentMessage) -> None:
         """Keep what a task's report says of where the task stands, for an inquiry."""
         task = getattr(message, "task", None)
-        if not isinstance(task, str) or not isinstance(message, messages.FromAgentEvent):
+        if not isinstance(task, str) or not isinstance(
+            message, messages.FromAgentEvent
+        ):
             return
         reported = self._task_reports.get(task)
         if reported is None:
@@ -1082,14 +1109,6 @@ class BaseAgent(KoiledModel):
         raise AgentException(f"Unknown message type {type(message)}")
 
     # ---------------------------------------------------------------- session
-
-
-
-
-
-
-
-
 
     # --------------------------------------------------------------- provider
 
@@ -1158,7 +1177,9 @@ class BaseAgent(KoiledModel):
             assert message.resume is not None
             postman = self.caller_postman
             if isinstance(postman, ReplaysCalls):
-                postman.begin_replay(message.task, message.resume.calls, message.resume.code_changed)
+                postman.begin_replay(
+                    message.task, message.resume.calls, message.resume.code_changed
+                )
         # From here on the task can end, and after its end nothing more is recorded
         # for it: its reports and state changes enter this gate.
         self._task_gates[message.task] = TaskGate()
@@ -1265,14 +1286,21 @@ class BaseAgent(KoiledModel):
         """Hand a refused blok to the actor whose task sent it; for a task gone since,
         there is nobody left to tell, so it is only logged."""
         assignment = self.managed_assignments.get(message.task)
-        actor = self.managed_actors.get(assignment.interface) if assignment is not None else None
+        actor = (
+            self.managed_actors.get(assignment.interface)
+            if assignment is not None
+            else None
+        )
         if actor is None:
-            logger.warning("The blok of task %s was refused, and the task is gone: %s", message.task, message.reason)
+            logger.warning(
+                "The blok of task %s was refused, and the task is gone: %s",
+                message.task,
+                message.reason,
+            )
             return
         await actor.apass(message)
 
     # ----------------------------------------------------------------- caller
-
 
     def _fail_pending_requests(self, error: Exception) -> None:
         """Fail whatever this agent is still waiting on its backend for (none in the core)."""
@@ -1374,7 +1402,10 @@ class BaseAgent(KoiledModel):
                 break
             queue.async_q.task_done()
             dropped += 1
-            if isinstance(item, (QueuedMessage, QueuedStep)) and item.waiter is not None:
+            if (
+                isinstance(item, (QueuedMessage, QueuedStep))
+                and item.waiter is not None
+            ):
                 if not item.waiter.done():
                     item.waiter.set_result(None)
         if dropped:
@@ -1456,16 +1487,21 @@ class BaseAgent(KoiledModel):
         try:
             await self.connection_listener(state)
         except Exception:
-            logger.warning("The connection listener failed on %s", state.value, exc_info=True)
+            logger.warning(
+                "The connection listener failed on %s", state.value, exc_info=True
+            )
 
     def _task_event_of(self, message: messages.FromAgentMessage) -> TaskEvent | None:
         """What a task's report means to a task listener; ``None`` for anything else."""
         details: dict[str, Any]
         if isinstance(message, messages.Progress):
-            kind, details = TaskEventKind.PROGRESS, {
-                "progress": message.progress,
-                "message": message.message,
-            }
+            kind, details = (
+                TaskEventKind.PROGRESS,
+                {
+                    "progress": message.progress,
+                    "message": message.message,
+                },
+            )
         elif isinstance(message, messages.Yield):
             kind, details = TaskEventKind.YIELDED, {}
         elif isinstance(message, messages.Completed):
@@ -1491,7 +1527,10 @@ class BaseAgent(KoiledModel):
             await self.task_listener(event)
         except Exception:
             logger.warning(
-                "The task listener failed on %s of %s", event.kind.value, event.task_id, exc_info=True
+                "The task listener failed on %s of %s",
+                event.kind.value,
+                event.task_id,
+                exc_info=True,
             )
 
     def _start_disconnect_watchdog(self) -> None:
@@ -1616,7 +1655,9 @@ class BaseAgent(KoiledModel):
         if gate is not None:
             if isinstance(message, messages.TERMINAL_REPORTS):
                 if gate.closed:
-                    logger.debug("Dropping a second end of task %s: %s", message.task, message)
+                    logger.debug(
+                        "Dropping a second end of task %s: %s", message.task, message
+                    )
                     return
                 gate.close()
             elif not gate.enter():
@@ -1941,7 +1982,9 @@ class BaseAgent(KoiledModel):
         """The contexts ``hook`` takes that no startup hook provided (it returned ``None``)."""
         variables = getattr(hook, "context_variables", None)
         wanted = getattr(variables, "context_variables", None) or {}
-        return [interface for interface in wanted.values() if interface not in self.contexts]
+        return [
+            interface for interface in wanted.values() if interface not in self.contexts
+        ]
 
     def _on_background_done(self, name: str, task: "asyncio.Task[None]") -> None:
         """Done-callback for background worker tasks. Removes the task from the
@@ -2060,9 +2103,13 @@ class BaseAgent(KoiledModel):
         entered, self._entered_lifecycles = self._entered_lifecycles, []
         for hook in reversed(entered):
             try:
-                await asyncio.wait_for(hook.afinish(), timeout=self.shutdown_hook_timeout)
+                await asyncio.wait_for(
+                    hook.afinish(), timeout=self.shutdown_hook_timeout
+                )
             except Exception as e:
-                hook_error = ShutdownHookError(f"Lifecycle hook {hook.func.__name__} failed")
+                hook_error = ShutdownHookError(
+                    f"Lifecycle hook {hook.func.__name__} failed"
+                )
                 hook_error.__cause__ = e
                 logger.error(hook_error, exc_info=hook_error)
 
@@ -2122,9 +2169,7 @@ class BaseAgent(KoiledModel):
         # baseline they announce is the journal's first entry.
         self.global_revision = 0
         self._event_queue = janus.Queue()
-        self._patch_processor_task = asyncio.create_task(
-            self.apatch_event_loop()
-        )
+        self._patch_processor_task = asyncio.create_task(self.apatch_event_loop())
         self._patch_processor_task.add_done_callback(
             lambda x: (
                 logger.error(f"Patch processor task failed: {x.exception()}")
@@ -2417,5 +2462,3 @@ class BaseAgent(KoiledModel):
         """
         await self.atear_down()
         await self.transport.__aexit__(exc_type, exc_val, exc_tb)
-
-

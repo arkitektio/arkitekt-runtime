@@ -15,22 +15,21 @@ A dependency's state demands are not readable through the proxy.
 
 from typing import Any
 
+from arkitekt_spec.actions import ActionKind
+from arkitekt_spec.declare.agents.errors import NoCallerError
+from arkitekt_spec.declare.declare import DeclaredAgentAction, DeclaredAgentProtocol
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_spec.declare.task import LocalTask, StateRef
 from arkitekt_spec.scalars import coerce_id
 
 from arkitekt_runtime.actors.types import ActorContext
-from arkitekt_spec.declare.declare import DeclaredAgentAction, DeclaredAgentProtocol
 from arkitekt_runtime.calls import (
     acall_dependency,
     aiterate_dependency,
     call_dependency,
     iterate_dependency,
 )
-from arkitekt_spec.actions import ActionKind
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.task import Task
-from arkitekt_spec.declare.agents.errors import NoCallerError
-from arkitekt_spec.declare.task import StateRef
-from arkitekt_spec.declare.task import LocalTask
 
 
 class AgentMethodProxy:

@@ -9,16 +9,15 @@ through its startup hooks — exactly once per start.
 
 from collections.abc import Generator
 
-from arkitekt_runtime.agents.hooks.materialize import materialize_hook
 import pytest
-
 from arkitekt_spec.declare.app import AppRegistry
+
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.agents.hooks.materialize import materialize_hook
 from arkitekt_runtime.agents.hooks.shutdown import (
     ThreadedShutdownHook,
     WrappedShutdownHook,
 )
-from arkitekt_runtime.agents.base import BaseAgent
-
 
 # These contexts and states belong to a registry, as they would to an app.
 # There is no process-wide one to fall into.
@@ -99,7 +98,9 @@ async def test_shutdown_hooks_run_with_states_and_contexts(
 
     agent = mock_agent
     connection, counter = Connection(), Counter()
-    agent.contexts[_REGISTRY.structure_registry.context_for(Connection).name] = connection
+    agent.contexts[_REGISTRY.structure_registry.context_for(Connection).name] = (
+        connection
+    )
     agent.states["Counter"] = counter
 
     agent.collect_from_registry()
@@ -127,7 +128,9 @@ async def test_threaded_shutdown_hook_runs_with_states_and_contexts(
 
     agent = mock_agent
     connection, counter = Connection(), Counter()
-    agent.contexts[_REGISTRY.structure_registry.context_for(Connection).name] = connection
+    agent.contexts[_REGISTRY.structure_registry.context_for(Connection).name] = (
+        connection
+    )
     agent.states["Counter"] = counter
 
     agent.collect_from_registry()

@@ -5,6 +5,7 @@ from typing import Any
 from arkitekt_spec.actions import StateDefinitionInput
 from arkitekt_spec.declare.protocol.types import AnyState
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
 from arkitekt_runtime.structures.serialization.expand import aexpand_return
 
 

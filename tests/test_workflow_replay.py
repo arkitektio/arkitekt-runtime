@@ -9,17 +9,19 @@ import asyncio
 import time
 from typing import Any
 
-
-from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import AssignPrompt, StateRef, Task
 
-from .agent_helpers import run_assignment
+from arkitekt_runtime import messages
+from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
 
+from .agent_helpers import run_assignment
 
-def _agent(*workflows: Any, plain: tuple = ()) -> tuple[BaseAgent, MemoryAgentTransport]:  # noqa: ANN401
+
+def _agent(
+    *workflows: Any, plain: tuple = ()
+) -> tuple[BaseAgent, MemoryAgentTransport]:
     registry = AppRegistry()
     for workflow in workflows:
         registry.register_workflow(workflow)
@@ -33,8 +35,15 @@ def _agent(*workflows: Any, plain: tuple = ()) -> tuple[BaseAgent, MemoryAgentTr
 
 def _assign(interface: str, resume: dict | None = None) -> messages.Assign:
     return messages.Assign(
-        task="42", interface=interface, args={}, implementation="impl-1", action="action-1",
-        reference="ref-1", user="user-1", org="org-1", resume=resume,
+        task="42",
+        interface=interface,
+        args={},
+        implementation="impl-1",
+        action="action-1",
+        reference="ref-1",
+        user="user-1",
+        org="org-1",
+        resume=resume,
     )
 
 
@@ -46,7 +55,9 @@ async def _ended(agent: BaseAgent, message: messages.Assign) -> MemoryAgentTrans
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def until_ended() -> None:
-        while not (transport.of_type(messages.Failed) or transport.of_type(messages.Critical)):
+        while not (
+            transport.of_type(messages.Failed) or transport.of_type(messages.Critical)
+        ):
             await asyncio.sleep(0.01)
 
     await asyncio.wait_for(until_ended(), timeout=5.0)
@@ -66,32 +77,45 @@ def stamped(task: Task) -> str:
 
 async def test_a_resumed_run_gets_its_recorded_values_back() -> None:
     agent, transport = _agent(stamped)
-    resume = {"last_step": 5, "effects": [
-        {"key": "NOW:1", "effect": "NOW", "value": 111.0},
-        {"key": "RANDOM:1", "effect": "RANDOM", "value": "abcd"},
-        {"key": "RECORD:1", "effect": "RECORD", "value": "old"},
-    ]}
+    resume = {
+        "last_step": 5,
+        "effects": [
+            {"key": "NOW:1", "effect": "NOW", "value": 111.0},
+            {"key": "RANDOM:1", "effect": "RANDOM", "value": "abcd"},
+            {"key": "RECORD:1", "effect": "RECORD", "value": "old"},
+        ],
+    }
 
     returns = await run_assignment(agent, _assign("stamped", resume))
 
     assert returns["return0"] == "111.0:abcd:old"
-    assert transport.of_type(messages.Effect) == [], "a replayed value is not recorded again"
+    assert transport.of_type(messages.Effect) == [], (
+        "a replayed value is not recorded again"
+    )
 
 
 async def test_what_the_earlier_run_did_not_record_is_taken_and_recorded() -> None:
     agent, transport = _agent(stamped)
-    resume = {"last_step": 3, "effects": [{"key": "NOW:1", "effect": "NOW", "value": 111.0}]}
+    resume = {
+        "last_step": 3,
+        "effects": [{"key": "NOW:1", "effect": "NOW", "value": 111.0}],
+    }
 
     returns = await run_assignment(agent, _assign("stamped", resume))
 
     now, drawn, recorded = returns["return0"].split(":")
     assert now == "111.0" and recorded == "fresh"
-    assert [(e.key, e.value) for e in transport.of_type(messages.Effect)] == [("RANDOM:1", drawn), ("RECORD:1", "fresh")]
+    assert [(e.key, e.value) for e in transport.of_type(messages.Effect)] == [
+        ("RANDOM:1", drawn),
+        ("RECORD:1", "fresh"),
+    ]
 
 
 async def test_reports_continue_after_the_earlier_runs_last_step() -> None:
     agent, transport = _agent(stamped)
-    await agent._adispatch(messages.SessionInit(session_id="s", states={}))  # frames are numbered in a session
+    await agent._adispatch(
+        messages.SessionInit(session_id="s", states={})
+    )  # frames are numbered in a session
 
     await run_assignment(agent, _assign("stamped", {"last_step": 7, "effects": []}))
 
@@ -102,7 +126,10 @@ async def test_reports_continue_after_the_earlier_runs_last_step() -> None:
 async def test_a_run_that_takes_another_path_is_refused() -> None:
     agent, _ = _agent(stamped)
     # The earlier run recorded randomness where this one asks for the clock.
-    resume = {"last_step": 1, "effects": [{"key": "NOW:1", "effect": "RANDOM", "value": "abcd"}]}
+    resume = {
+        "last_step": 1,
+        "effects": [{"key": "NOW:1", "effect": "RANDOM", "value": "abcd"}],
+    }
 
     transport = await _ended(agent, _assign("stamped", resume))
 
@@ -120,7 +147,16 @@ async def test_a_resumed_sleep_waits_only_until_its_recorded_deadline() -> None:
     past = time.time() - 1
     started = time.time()
 
-    await run_assignment(agent, _assign("sleeper", {"last_step": 2, "effects": [{"key": "SLEEP:1", "effect": "SLEEP", "value": past}]}))
+    await run_assignment(
+        agent,
+        _assign(
+            "sleeper",
+            {
+                "last_step": 2,
+                "effects": [{"key": "SLEEP:1", "effect": "SLEEP", "value": past}],
+            },
+        ),
+    )
 
     assert time.time() - started < 2, "the deadline had passed: nothing left to wait"
 
@@ -155,7 +191,10 @@ async def test_a_plain_action_may_not_call_another() -> None:
 
 def held(task: Task) -> str:
     """Waits for a person."""
-    decision = task.hold("Check the well", prompt=AssignPrompt(title="Check the well", description="Is it clean?"))
+    decision = task.hold(
+        "Check the well",
+        prompt=AssignPrompt(title="Check the well", description="Is it clean?"),
+    )
     return f"{decision.approved}:{decision.answer}:{decision.auto}"
 
 
@@ -185,7 +224,9 @@ async def test_a_hold_is_held_with_why_and_returns_the_decision() -> None:
     agent, transport = _agent(held)
     loop, hold = await _until_held(agent, transport)
     assert hold.message == "Check the well"
-    assert hold.prompt == AssignPrompt(title="Check the well", description="Is it clean?")
+    assert hold.prompt == AssignPrompt(
+        title="Check the well", description="Is it clean?"
+    )
     assert transport.of_type(messages.Paused) == []
 
     transport.feed(messages.Decide(task="42", approved=True, answer="looks fine"))
@@ -223,9 +264,15 @@ async def test_a_resume_never_answers_a_hold() -> None:
 
 async def test_a_hold_decided_before_is_not_held_again() -> None:
     agent, transport = _agent(held)
-    recorded = {"key": "HOLD:1", "effect": "HOLD", "value": {"approved": False, "answer": "no", "auto": False}}
+    recorded = {
+        "key": "HOLD:1",
+        "effect": "HOLD",
+        "value": {"approved": False, "answer": "no", "auto": False},
+    }
 
-    returns = await run_assignment(agent, _assign("held", {"last_step": 3, "effects": [recorded]}))
+    returns = await run_assignment(
+        agent, _assign("held", {"last_step": 3, "effects": [recorded]})
+    )
 
     assert returns["return0"] == "False:no:False"
     assert transport.of_type(messages.Held) == []
@@ -243,7 +290,8 @@ class Guardian:
     async def astate_revision(self, **kwargs: Any) -> messages.StateRevisionResponse:  # noqa: ANN401
         self.asked.append(kwargs)
         return messages.StateRevisionResponse(
-            request="r", revision={"session": "s1", "global_rev": 4},
+            request="r",
+            revision={"session": "s1", "global_rev": 4},
             changed=self.changed if kwargs.get("since") is not None else None,
             detail="'plate' changed at /barcode (by task 9) since the workflow last saw it.",
         )
@@ -262,9 +310,19 @@ async def test_a_guard_records_the_revision_on_entering() -> None:
 
     assert (await run_assignment(agent, _assign("guarded")))["return0"] == "worked"
 
-    assert guardian.asked == [{"parent": "42", "dependency": "handler", "state": "plate", "paths": ("barcode",)}]
+    assert guardian.asked == [
+        {
+            "parent": "42",
+            "dependency": "handler",
+            "state": "plate",
+            "paths": ("barcode",),
+        }
+    ]
     (recorded,) = transport.of_type(messages.Effect)
-    assert (recorded.effect, recorded.value) == ("RECORD", {"session": "s1", "global_rev": 4})
+    assert (recorded.effect, recorded.value) == (
+        "RECORD",
+        {"session": "s1", "global_rev": 4},
+    )
 
 
 async def test_a_resumed_guard_carries_on_when_nothing_else_changed_the_state() -> None:
@@ -273,7 +331,16 @@ async def test_a_resumed_guard_carries_on_when_nothing_else_changed_the_state() 
     agent.use_caller(guardian)
     seen = {"session": "s1", "global_rev": 2}
 
-    returns = await run_assignment(agent, _assign("guarded", {"last_step": 2, "effects": [{"key": "RECORD:1", "effect": "RECORD", "value": seen}]}))
+    returns = await run_assignment(
+        agent,
+        _assign(
+            "guarded",
+            {
+                "last_step": 2,
+                "effects": [{"key": "RECORD:1", "effect": "RECORD", "value": seen}],
+            },
+        ),
+    )
 
     assert returns["return0"] == "worked"
     assert guardian.asked[0]["since"] == seen
@@ -283,7 +350,22 @@ async def test_a_resumed_guard_stops_when_something_else_changed_the_state() -> 
     agent, _ = _agent(guarded)
     agent.use_caller(Guardian(changed=True))
 
-    transport = await _ended(agent, _assign("guarded", {"last_step": 2, "effects": [{"key": "RECORD:1", "effect": "RECORD", "value": {"session": "s1", "global_rev": 2}}]}))
+    transport = await _ended(
+        agent,
+        _assign(
+            "guarded",
+            {
+                "last_step": 2,
+                "effects": [
+                    {
+                        "key": "RECORD:1",
+                        "effect": "RECORD",
+                        "value": {"session": "s1", "global_rev": 2},
+                    }
+                ],
+            },
+        ),
+    )
 
     ended = transport.of_type(messages.Failed) + transport.of_type(messages.Critical)
     assert "/barcode" in ended[0].error and "task 9" in ended[0].error
@@ -302,4 +384,6 @@ async def test_a_guard_on_anything_but_a_dependencys_state_says_what_it_takes() 
     transport = await _ended(agent, _assign("guards_a_value"))
 
     (critical,) = transport.of_type(messages.Critical)
-    assert "state attribute of a dependency" in critical.error and "dict" in critical.error
+    assert (
+        "state attribute of a dependency" in critical.error and "dict" in critical.error
+    )

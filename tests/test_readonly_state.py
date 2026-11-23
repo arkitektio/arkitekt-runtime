@@ -9,14 +9,12 @@ import asyncio
 from dataclasses import dataclass, field
 
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
 
 from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_runtime.local import MemoryAgentTransport
 from arkitekt_runtime.state.observable import adopt, evented
 from arkitekt_runtime.state.readonly import ReadOnlyStateError, read_only_view
-
-from arkitekt_runtime.local import MemoryAgentTransport
-
 
 # These states belong to a registry, as they would to an app. There is no
 # process-wide one to fall into.
@@ -144,8 +142,9 @@ async def test_readonly_annotation_reaches_an_actor_as_a_refusing_view() -> None
     failed with a missing argument. This drives the whole path: annotation -> classified
     read-only -> injected -> writes refused.
     """
-    from arkitekt_runtime import messages
     from arkitekt_spec.declare.state.types import ReadOnly
+
+    from arkitekt_runtime import messages
 
     agent = BaseAgent(
         name="ro-actor", transport=MemoryAgentTransport(), app_registry=AppRegistry()
@@ -193,7 +192,9 @@ async def test_readonly_annotation_reaches_an_actor_as_a_refusing_view() -> None
         f"the actor must receive the read-only state, got {outcome} "
         f"(errors: {[c.error for c in transport.of_type(messages.Critical)]})"
     )
-    assert "refused" in outcome, "the actor's write to a read-only state must be refused"
+    assert "refused" in outcome, (
+        "the actor's write to a read-only state must be refused"
+    )
     assert board.count == 42, "the state must be unchanged"
 
 
@@ -205,7 +206,8 @@ class _PatchRecorder:
 
     def publish_update(self, interface: str, patches: list) -> None:  # type: ignore[type-arg]
         self.patches.extend(
-            {"op": patch.op, "path": patch.path, "value": getattr(patch, "value", None)} for patch in patches
+            {"op": patch.op, "path": patch.path, "value": getattr(patch, "value", None)}
+            for patch in patches
         )
 
 
@@ -222,14 +224,16 @@ def _replay(patches: list[dict], initial: list) -> list:
 @pytest.mark.parametrize(
     ("initial", "target_slice", "new_values"),
     [
-        ([1, 2, 3, 4], slice(1, 3), [9]),            # shrinking slice
-        ([1, 2, 3], slice(1, 2), [7, 8, 9]),         # growing slice
-        ([1, 2, 3], slice(0, 3), []),                # clearing slice
-        ([1, 2, 3], slice(3, 3), [4, 5]),            # append via empty slice
-        ([1, 2, 3, 4], slice(0, 4, 2), [10, 30]),    # extended slice, same size
+        ([1, 2, 3, 4], slice(1, 3), [9]),  # shrinking slice
+        ([1, 2, 3], slice(1, 2), [7, 8, 9]),  # growing slice
+        ([1, 2, 3], slice(0, 3), []),  # clearing slice
+        ([1, 2, 3], slice(3, 3), [4, 5]),  # append via empty slice
+        ([1, 2, 3, 4], slice(0, 4, 2), [10, 30]),  # extended slice, same size
     ],
 )
-def test_slice_assignment_emits_replayable_patches(initial, target_slice, new_values) -> None:
+def test_slice_assignment_emits_replayable_patches(
+    initial, target_slice, new_values
+) -> None:
     """Length-changing slice assignment must publish patches a JSON-patch consumer can replay."""
     board = _evented_board()
     board.items.extend(initial)

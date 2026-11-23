@@ -6,9 +6,9 @@ gathers implementations from the registry, and the actor-builder used by the
 spawn path is resolvable from the same registry.
 """
 
-from arkitekt_runtime.actors.build import actor_builder_for
 import pytest
 
+from arkitekt_runtime.actors.build import actor_builder_for
 from arkitekt_runtime.agents.base import BaseAgent
 
 

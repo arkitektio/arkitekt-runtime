@@ -22,9 +22,8 @@ whether it has one is settled when the registry is bound, not here.
 import asyncio
 from typing import Any
 
-from arkitekt_spec.scalars import ID
-
 from arkitekt_spec.declare.structures.types import FullFilledStructure
+from arkitekt_spec.scalars import ID
 
 
 class StructureNotFound(LookupError):

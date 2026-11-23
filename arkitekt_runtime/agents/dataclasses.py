@@ -6,11 +6,12 @@ and from the agent's behaviour so that each can be imported without the other.
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
-from arkitekt_runtime import messages
 from arkitekt_spec.declare.state.publish import Patch
 from arkitekt_spec.declare.structures.types import JSONSerializable
+
+from arkitekt_runtime import messages
 
 
 @dataclass
@@ -69,4 +70,11 @@ class RevisedState:
     data: JSONSerializable
 
 
-__all__ = ["QueuedAssign", "QueuedMessage", "QueuedRead", "QueuedUpdate", "QueuedStep", "RevisedState"]
+__all__ = [
+    "QueuedAssign",
+    "QueuedMessage",
+    "QueuedRead",
+    "QueuedUpdate",
+    "QueuedStep",
+    "RevisedState",
+]

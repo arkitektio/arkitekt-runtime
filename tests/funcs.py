@@ -2,12 +2,12 @@
 
 import asyncio
 from collections.abc import Generator
-from .structures import SecondObject, SecondSerializableObject, SerializableObject
-from annotated_types import Le, Predicate, Gt, Len
+from typing import Annotated
+
+from annotated_types import Gt, Le, Len, Predicate
 from arkitekt_spec.actions import CustomAssignWidgetInput
 
-
-from typing import Annotated
+from .structures import SecondObject, SecondSerializableObject, SerializableObject
 
 
 def null_function(x: int | None) -> None:

@@ -17,9 +17,8 @@ declaration covers attribute and container mutation, which is what publishes pat
 """
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, TypeVar
-from collections.abc import Iterator
 
 from arkitekt_runtime.state.observable import ContainerView
 
@@ -101,7 +100,11 @@ class _ReadOnlySequence(_ReadOnlyContainer, Sequence[Any]):
 
     def __eq__(self, other: object) -> bool:
         """Compare against the underlying list."""
-        return list(self._target) == list(other) if isinstance(other, (list, Sequence)) else NotImplemented
+        return (
+            list(self._target) == list(other)
+            if isinstance(other, (list, Sequence))
+            else NotImplemented
+        )
 
 
 class _ReadOnlyMapping(_ReadOnlyContainer, Mapping[Any, Any]):
@@ -118,7 +121,11 @@ class _ReadOnlyMapping(_ReadOnlyContainer, Mapping[Any, Any]):
 
     def __eq__(self, other: object) -> bool:
         """Compare against the underlying dict."""
-        return dict(self._target) == dict(other) if isinstance(other, (dict, Mapping)) else NotImplemented
+        return (
+            dict(self._target) == dict(other)
+            if isinstance(other, (dict, Mapping))
+            else NotImplemented
+        )
 
 
 def _wrap(value: Any, state_name: str) -> Any:  # noqa: ANN401

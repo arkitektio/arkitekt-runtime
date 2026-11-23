@@ -1,17 +1,17 @@
 """Postman types"""
 
+from collections.abc import AsyncGenerator, Sequence
 from types import TracebackType
 from typing import (
     Any,
     Protocol,
     runtime_checkable,
 )
-from collections.abc import AsyncGenerator, Sequence
 
+from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
 from arkitekt_spec.scalars import ID
 
 from arkitekt_runtime.types import TaskEventKind, TaskPolicy
-from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
 
 
 @runtime_checkable
@@ -46,7 +46,9 @@ class TaskEventLike(Protocol):
 class ReplaysCalls(Protocol):
     """A postman that holds a resumed workflow to the calls its earlier run made."""
 
-    def begin_replay(self, parent: str, calls: Sequence[str], code_changed: bool = False) -> None:
+    def begin_replay(
+        self, parent: str, calls: Sequence[str], code_changed: bool = False
+    ) -> None:
         """A resumed run of ``parent`` begins: these are the call keys it must make again."""
         ...
 

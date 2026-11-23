@@ -15,16 +15,16 @@ from typing import Annotated, Any
 
 import janus
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_spec.declare.task import Task
 from pydantic import Field, TypeAdapter
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.agents.journal import Journal, TaskGate
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.task import Task
+from arkitekt_runtime.local import MemoryAgentTransport
 
 from .agent_helpers import run_assignment
-from arkitekt_runtime.local import MemoryAgentTransport
 
 WIRE = json.loads((Path(__file__).parent / "fixtures" / "agent_wire.json").read_text())
 
@@ -48,7 +48,10 @@ def _cases(*groups: str) -> list[Any]:
 
 
 @pytest.mark.parametrize(
-    "frame", _cases("numbered_from_agent", "numbered_requests_from_agent", "unnumbered_from_agent")
+    "frame",
+    _cases(
+        "numbered_from_agent", "numbered_requests_from_agent", "unnumbered_from_agent"
+    ),
 )
 def test_every_frame_from_the_agent_round_trips(frame: dict[str, Any]) -> None:
     message = FROM_AGENT.validate_python(frame)
@@ -82,7 +85,9 @@ def test_the_fixture_steps_are_what_the_journal_numbers() -> None:
         for key in ("pos", "journal_session", "agent_ts"):
             frame.pop(key)
         if case["name"] == "state_patch":
-            assert journal.take_step("42") == 8  # the child call of unnumbered_from_agent
+            assert (
+                journal.take_step("42") == 8
+            )  # the child call of unnumbered_from_agent
         if case["name"] in ("failed", "critical", "cancelled", "interrupted", "paused"):
             # Tasks 43..47 started (step 1) before what the fixture shows of them.
             journal.append(messages.Started(task=frame["task"]))
@@ -104,7 +109,14 @@ def _journal(*tasks: str) -> Journal:
 def test_a_task_is_numbered_per_task_and_the_assign_takes_no_step() -> None:
     journal = _journal("t", "u")
     assign = messages.Assign(
-        interface="i", task="t", args={}, user="u", org="o", action="a", implementation="m", reference="r"
+        interface="i",
+        task="t",
+        args={},
+        user="u",
+        org="o",
+        action="a",
+        implementation="m",
+        reference="r",
     )
     assert journal.record_assign(assign, "i").step is None  # type: ignore[union-attr]
     started = journal.append(messages.Started(task="t"))
@@ -124,7 +136,9 @@ def test_a_task_is_numbered_per_task_and_the_assign_takes_no_step() -> None:
         4,
         5,
         6,
-    ], "gapless per task, child calls included; the UNLOCK after the end is the holder's"
+    ], (
+        "gapless per task, child calls included; the UNLOCK after the end is the holder's"
+    )
     assert unlock.task_id == "t"  # type: ignore[union-attr]
     assert unshelve.step is None and unshelve.pos == 9  # type: ignore[union-attr]
 
@@ -142,7 +156,14 @@ def test_a_probes_reports_are_never_numbered_but_its_patches_are() -> None:
     assert journal.append(messages.Completed(task="p-abc")) is None
     assert journal.take_step("p-abc") is None
     probe = messages.Assign(
-        interface="i", task="p-abc", args={}, user="u", org="o", action="a", implementation="m", probe=True
+        interface="i",
+        task="p-abc",
+        args={},
+        user="u",
+        org="o",
+        action="a",
+        implementation="m",
+        probe=True,
     )
     assert journal.record_assign(probe, "i") is None
     assert journal.watermark().pos == 1  # type: ignore[union-attr]
@@ -158,7 +179,11 @@ def test_a_probes_reports_are_never_numbered_but_its_patches_are() -> None:
             task_id="p-abc",
         )
     )
-    assert patch is not None and (patch.pos, patch.step, patch.task_id) == (2, None, "p-abc")
+    assert patch is not None and (patch.pos, patch.step, patch.task_id) == (
+        2,
+        None,
+        "p-abc",
+    )
 
 
 def test_a_report_about_a_task_this_process_never_ran_has_no_step() -> None:
@@ -184,7 +209,9 @@ def test_a_task_begun_before_the_session_keeps_its_steps() -> None:
 # ------------------------------------------------------------------ agent --
 
 
-def _agent(registry: AppRegistry | None = None) -> tuple[BaseAgent, MemoryAgentTransport]:
+def _agent(
+    registry: AppRegistry | None = None,
+) -> tuple[BaseAgent, MemoryAgentTransport]:
     transport = MemoryAgentTransport()
     agent = BaseAgent(transport=transport, app_registry=registry or AppRegistry())
     agent.collect_from_registry()
@@ -365,7 +392,11 @@ async def test_shelving_is_one_numbered_frame_and_nothing_waits_for_a_reply() ->
     await asyncio.gather(*agent._dispatch_tasks)
     assert reference == {"__identifier": "@mikro/image", "object": reference["object"]}
     second = transport.of_type(messages.Shelve)[1]
-    assert (second.resource_id, second.task, second.task_step) == (reference["object"], "42", 1)
+    assert (second.resource_id, second.task, second.task_step) == (
+        reference["object"],
+        "42",
+        1,
+    )
 
     # COLLECT names the drawer by its resource id: dropped, and recorded.
     await agent.process(messages.Collect(drawers=[resource_id]))
@@ -375,8 +406,9 @@ async def test_shelving_is_one_numbered_frame_and_nothing_waits_for_a_reply() ->
 
 
 async def test_an_unlock_names_the_task_that_held_the_lock() -> None:
-    from arkitekt_runtime.agents.lock import TaskLock
     from arkitekt_spec.actions import LockDefinitionInput, LockImplementationInput
+
+    from arkitekt_runtime.agents.lock import TaskLock
 
     agent, transport = _agent()
     await agent._adispatch(messages.SessionInit(session_id="s", states={}))
@@ -384,7 +416,8 @@ async def test_an_unlock_names_the_task_that_held_the_lock() -> None:
     lock = TaskLock(
         agent,
         LockImplementationInput(
-            key="stage", definition=LockDefinitionInput(key="stage", description="The stage")
+            key="stage",
+            definition=LockDefinitionInput(key="stage", description="The stage"),
         ),
     )
     await lock.acquire("42")

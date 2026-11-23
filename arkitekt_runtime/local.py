@@ -13,15 +13,15 @@ values, the way a caller on the other side of a server would.
 
 import asyncio
 import logging
-from types import TracebackType
 import uuid
-from typing import Any, Self, TypeVar
 from collections.abc import AsyncIterator
+from types import TracebackType
+from typing import Any, Self, TypeVar
 
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.actions import PortKind
+from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.errors import STATE_PRECONDITION, StatePreconditionFailed
+from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_spec.declare.task import StateRequirement
 
 from arkitekt_runtime import messages
@@ -130,7 +130,9 @@ class MemoryAgentTransport(AgentTransport):
         self._connected = True
         if self.acknowledge and self._host is not None:
             params = await self._host.aget_handshake_params()
-            declared = params.declaration.hash if params.declaration is not None else None
+            declared = (
+                params.declaration.hash if params.declaration is not None else None
+            )
             self.feed(messages.Init(agent=LOCAL_AGENT_ID, hash=declared))
 
     async def adisconnect(self) -> None:
@@ -188,7 +190,9 @@ class LocalCallCancelledError(LocalCallError):
     """An action called in-process was cancelled before it finished."""
 
 
-def local_agent(registry: AppRegistry, name: str = "local", **options: Any) -> BaseAgent:  # noqa: ANN401
+def local_agent(
+    registry: AppRegistry, name: str = "local", **options: Any
+) -> BaseAgent:
     """An agent serving ``registry`` with no backend: it registers with itself.
 
     Connect it (``await agent.aconnect(context)``) and it runs the app's startup
@@ -237,7 +241,10 @@ def _each_memory_value(port: SerializablePort, value: Any, swap: Any) -> Any:  #
     if port.kind == PortKind.LIST and children and isinstance(value, (list, tuple)):
         return [_each_memory_value(children[0], item, swap) for item in value]
     if port.kind == PortKind.DICT and children and isinstance(value, dict):
-        return {key: _each_memory_value(children[0], item, swap) for key, item in value.items()}
+        return {
+            key: _each_memory_value(children[0], item, swap)
+            for key, item in value.items()
+        }
     return value
 
 
@@ -296,7 +303,10 @@ async def aiterate_local_raw(
                 raise LocalCallCancelledError(interface, "it was cancelled")
             elif isinstance(message, messages.Held):
                 # Nobody decides in-process: it carries on approved, as a local task does.
-                logger.warning("hold (an in-process call carries on, approved): %s", message.message)
+                logger.warning(
+                    "hold (an in-process call carries on, approved): %s",
+                    message.message,
+                )
                 transport.feed(messages.Decide(task=task, approved=True, auto=True))
     finally:
         transport.unwatch(watcher)
@@ -338,7 +348,8 @@ async def aiterate_local(
         return agent.shelve[drawer]
 
     args = tuple(
-        _each_memory_value(port, value, shelve) for port, value in zip(definition.args, args)
+        _each_memory_value(port, value, shelve)
+        for port, value in zip(definition.args, args)
     )
     by_key = {port.key: port for port in definition.args}
     kwargs = {
@@ -353,7 +364,9 @@ async def aiterate_local(
         )
 
     shrunk = await ashrink_args(definition, args, kwargs, structure_registry=registry)
-    async for raw in aiterate_local_raw(agent, interface, shrunk, state_requires=state_requires):
+    async for raw in aiterate_local_raw(
+        agent, interface, shrunk, state_requires=state_requires
+    ):
         returns = await aexpand_returns(definition, raw, structure_registry=registry)
         returns = tuple(
             _each_memory_value(port, value, unshelve)
@@ -383,7 +396,9 @@ async def acall_local(
         LocalCallError: If the action fails or raises.
     """
     result: Any = None
-    async for result in aiterate_local(agent, interface, *args, state_requires=state_requires, **kwargs):  # noqa: B007
+    async for result in aiterate_local(  # noqa: B007
+        agent, interface, *args, state_requires=state_requires, **kwargs
+    ):
         pass
     return result
 

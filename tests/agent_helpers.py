@@ -6,7 +6,6 @@ from typing import Any
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
-
 from arkitekt_runtime.local import MemoryAgentTransport
 
 

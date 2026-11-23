@@ -1,27 +1,27 @@
 """The core runs a declared app with no transport, client or task scope of its own."""
 
-import asyncio
 import ast
+import asyncio
 import contextlib
 import contextvars
 import subprocess
 import sys
-from types import SimpleNamespace
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from arkitekt_runtime import messages
-from arkitekt_runtime.actors.types import ActorContext
-from arkitekt_runtime.agents.base import BaseAgent, NoCallerPostman
 from arkitekt_spec.declare.agents.errors import NoCallerError
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 
-from .agent_helpers import run_assignment
+from arkitekt_runtime import messages
+from arkitekt_runtime.actors.types import ActorContext
+from arkitekt_runtime.agents.base import BaseAgent, NoCallerPostman
 from arkitekt_runtime.local import MemoryAgentTransport
 from arkitekt_runtime.trace import current_traceparent, trace_scope
+
+from .agent_helpers import run_assignment
 
 HEAVY = {"rekuest", "rath", "websockets", "graphql", "fastapi", "fakts"}
 
@@ -33,7 +33,9 @@ def test_the_core_loads_no_transport_or_client() -> None:
         "arkitekt_runtime.task, arkitekt_runtime.invoke; "
         "print(sorted({m.split('.')[0] for m in sys.modules}))"
     )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
     assert not set(ast.literal_eval(out.stdout.strip())) & HEAVY
 
 
@@ -50,7 +52,9 @@ def _assign(interface: str) -> messages.Assign:
     )
 
 
-CURRENT: contextvars.ContextVar[str | None] = contextvars.ContextVar("current", default=None)
+CURRENT: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current", default=None
+)
 
 
 @contextlib.contextmanager
@@ -73,13 +77,19 @@ def read() -> str:
 
 
 @pytest.mark.parametrize("func", [aread, read])
-async def test_the_agents_task_scopes_are_entered_around_an_assignment(func: Any) -> None:  # noqa: ANN401
+async def test_the_agents_task_scopes_are_entered_around_an_assignment(
+    func: Any,  # noqa: ANN401
+) -> None:
     registry = AppRegistry()
     registry.register(func)
-    agent = BaseAgent(transport=MemoryAgentTransport(), app_registry=registry, task_scopes=[_scope])
+    agent = BaseAgent(
+        transport=MemoryAgentTransport(), app_registry=registry, task_scopes=[_scope]
+    )
     agent.collect_from_registry()
 
-    assert await run_assignment(agent, _assign(func.__name__)) == {"return0": f"task-{func.__name__}"}
+    assert await run_assignment(agent, _assign(func.__name__)) == {
+        "return0": f"task-{func.__name__}"
+    }
     assert CURRENT.get() is None
 
 
@@ -103,13 +113,19 @@ async def test_an_assignment_runs_in_the_trace_its_server_names(func: Any) -> No
     def agent() -> BaseAgent:
         registry = AppRegistry()
         registry.register(func)
-        made = BaseAgent(transport=MemoryAgentTransport(), app_registry=registry, task_scopes=[trace_scope])
+        made = BaseAgent(
+            transport=MemoryAgentTransport(),
+            app_registry=registry,
+            task_scopes=[trace_scope],
+        )
         made.collect_from_registry()
         return made
 
     assigned = _assign(func.__name__).model_copy(update={"traceparent": TRACEPARENT})
     assert await run_assignment(agent(), assigned) == {"return0": TRACEPARENT}
-    assert await run_assignment(agent(), _assign(func.__name__)) == {"return0": "none"}, "a task in no trace starts none"
+    assert await run_assignment(agent(), _assign(func.__name__)) == {
+        "return0": "none"
+    }, "a task in no trace starts none"
     assert current_traceparent() is None
 
 
@@ -146,6 +162,8 @@ async def test_calling_another_action_without_a_caller_fails_at_once() -> None:
     agent.collect_from_registry()
     transport: MemoryAgentTransport = agent.transport  # type: ignore[assignment]
     with contextlib.suppress(Exception):
-        await asyncio.wait_for(run_assignment(agent, _assign("calls_another")), timeout=5.0)
+        await asyncio.wait_for(
+            run_assignment(agent, _assign("calls_another")), timeout=5.0
+        )
     (critical,) = transport.of_type(messages.Critical)
     assert "cannot call other actions" in critical.error

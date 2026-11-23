@@ -1,29 +1,35 @@
 """Test the serialization logic on the actor side"""
 
+from typing import Any
+
 import pytest
-from arkitekt_runtime.actors.types import Shelver
-from arkitekt_spec.declare.definition.define import prepare_definition
-from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.actor import shrink_outputs, expand_inputs
-from .funcs import (
-    plain_basic_function,
-    plain_structure_function,
-    nested_structure_function,
-    null_function,
-    union_structure_function,
-    basic_union_function,
-    numeric_union_function,
-)
-from .structures import SecondObject, SecondSerializableObject, SerializableObject
-from arkitekt_spec.declare.structures.errors import ShrinkingError, ExpandingError
 from arkitekt_spec.actions import (
     ActionKind,
-    DefinitionInput,
     ArgPortInput,
+    DefinitionInput,
     PortKind,
     ReturnPortInput,
 )
-from typing import Any
+from arkitekt_spec.declare.definition.define import prepare_definition
+from arkitekt_spec.declare.structures.errors import ExpandingError, ShrinkingError
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.structures.serialization.actor import (
+    expand_inputs,
+    shrink_outputs,
+)
+
+from .funcs import (
+    basic_union_function,
+    nested_structure_function,
+    null_function,
+    numeric_union_function,
+    plain_basic_function,
+    plain_structure_function,
+    union_structure_function,
+)
+from .structures import SecondObject, SecondSerializableObject, SerializableObject
 
 
 @pytest.mark.expand
@@ -257,7 +263,10 @@ async def test_expand_union_uses_index(
         {
             "rep": {
                 "__use": 1,
-                "__value": {"__identifier": "@mock/secondserializable", "object": "abc"},
+                "__value": {
+                    "__identifier": "@mock/secondserializable",
+                    "object": "abc",
+                },
             }
         },
         structure_registry=simple_registry,

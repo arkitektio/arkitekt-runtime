@@ -9,10 +9,11 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Protocol
 
-from arkitekt_runtime.actors.dependency import AgentMethodProxy
-from arkitekt_runtime.types import TaskEventKind
 from arkitekt_spec.declare.declare import DeclaredAgentAction
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.dependency import AgentMethodProxy
+from arkitekt_runtime.types import TaskEventKind
 
 
 @dataclass
@@ -47,7 +48,9 @@ class Streams(Protocol):
 
 def _proxy(method: Any, postman: WordsPostman) -> AgentMethodProxy:  # noqa: ANN401
     registry = StructureRegistry()
-    action = DeclaredAgentAction(method, "testo", method.__name__, registry, app="testo")
+    action = DeclaredAgentAction(
+        method, "testo", method.__name__, registry, app="testo"
+    )
     return AgentMethodProxy(
         "testo",
         method.__name__,
@@ -63,14 +66,21 @@ async def test_an_async_generator_method_streams_every_yield() -> None:
     count = _proxy(Streams.count, postman)
 
     assert [word async for word in count(to=3)] == ["hello", "from", "testo"]
-    assert postman.calls[0]["dependency"] == "testo" and postman.calls[0]["method"] == "count"
+    assert (
+        postman.calls[0]["dependency"] == "testo"
+        and postman.calls[0]["method"] == "count"
+    )
     assert postman.calls[0]["args"] == {"to": 3}
 
 
 async def test_aiterate_streams_a_sync_declared_generator_too() -> None:
     words = _proxy(Streams.stream_words, WordsPostman())
 
-    assert [word async for word in words.aiterate("a b c")] == ["hello", "from", "testo"]
+    assert [word async for word in words.aiterate("a b c")] == [
+        "hello",
+        "from",
+        "testo",
+    ]
 
 
 async def test_acall_on_a_stream_keeps_only_the_last_yield() -> None:
@@ -91,10 +101,18 @@ async def test_a_call_carries_the_policy_its_protocol_method_declared() -> None:
             ...
 
     postman = WordsPostman()
-    assert [word async for word in _proxy(Careful.count, postman)(to=3)] == ["hello", "from", "testo"]
+    assert [word async for word in _proxy(Careful.count, postman)(to=3)] == [
+        "hello",
+        "from",
+        "testo",
+    ]
     assert await _proxy(Careful.count, postman).acall(to=3) == "testo"
     for call in postman.calls:
-        assert (call["inquire_after"], call["on_lost"], call["max_resumes"]) == (5.0, "FAIL", 0)
+        assert (call["inquire_after"], call["on_lost"], call["max_resumes"]) == (
+            5.0,
+            "FAIL",
+            0,
+        )
 
     plain = WordsPostman()
     assert await _proxy(Streams.count, plain).acall(to=3) == "testo"

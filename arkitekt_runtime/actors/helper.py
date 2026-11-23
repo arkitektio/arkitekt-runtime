@@ -1,16 +1,22 @@
 """The AssignmentHelper is a helper class that is used to manage the assignment"""
 
-from typing import Any, Protocol, Self, runtime_checkable
-from pydantic import PrivateAttr, BaseModel, ConfigDict
 from enum import Enum
+from typing import Any, Protocol, Self, runtime_checkable
 
-from arkitekt_spec.declare.task import LogLevel
-from koil import unkoil
-from arkitekt_runtime import messages
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.errors import NonDeterministicWorkflow
+from arkitekt_spec.declare.task import (
+    AssignmentHook,
+    AssignPrompt,
+    Decision,
+    LogLevel,
+    TaskBlok,
+)
+from koil import unkoil
+from pydantic import BaseModel, ConfigDict, PrivateAttr
+
+from arkitekt_runtime import messages
 from arkitekt_runtime.actors.types import Actor
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
 
 
 @runtime_checkable
@@ -99,7 +105,10 @@ class AssignmentHelper(BaseModel):
         )
 
     async def aeffect(
-        self, effect: messages.EffectKind, value: Any, key: str | None = None  # noqa: ANN401 -- any JSON
+        self,
+        effect: messages.EffectKind,
+        value: Any,  # noqa: ANN401 -- any JSON
+        key: str | None = None,
     ) -> None:
         """Record a value the task took from outside itself (an ``EFFECT``).
 
@@ -111,7 +120,10 @@ class AssignmentHelper(BaseModel):
         """
         await self.actor.asend(
             message=messages.Effect(
-                task=self.assignment.task, effect=effect, value=value, key=self._key_for(effect, key)
+                task=self.assignment.task,
+                effect=effect,
+                value=value,
+                key=self._key_for(effect, key),
             )
         )
 
@@ -130,7 +142,9 @@ class AssignmentHelper(BaseModel):
     @property
     def _recorded(self) -> dict[str, messages.RecordedEffect]:
         resume = self.assignment.resume
-        return {entry.key: entry for entry in resume.effects} if resume is not None else {}
+        return (
+            {entry.key: entry for entry in resume.effects} if resume is not None else {}
+        )
 
     async def areplay(
         self, effect: messages.EffectKind, key: str | None = None
@@ -164,7 +178,9 @@ class AssignmentHelper(BaseModel):
     ) -> "Decision":
         """Hold the task until a person decides (or auto-mode does), or answers through
         ``blok``, and return the decision."""
-        return await self.actor.ahold(self.assignment.task, message, details, prompt, blok)
+        return await self.actor.ahold(
+            self.assignment.task, message, details, prompt, blok
+        )
 
     async def ainform(self, blok: "TaskBlok", message: str | None = None) -> None:
         """Show a person ``blok`` while the task goes on."""

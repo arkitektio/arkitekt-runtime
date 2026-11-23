@@ -11,14 +11,12 @@ import json
 from collections.abc import AsyncIterator
 
 import pytest
+from arkitekt_spec.declare.agents.errors import AgentException
+from arkitekt_spec.declare.agents.hooks.registry import StartupHookReturns
+from arkitekt_spec.declare.app import AppRegistry
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.agents.hooks.registry import StartupHookReturns
-
-from arkitekt_spec.declare.agents.errors import AgentException
-
 from arkitekt_runtime.local import MemoryAgentTransport
 
 
@@ -71,7 +69,9 @@ async def test_interrupt_for_an_unknown_task_does_not_kill_the_agent(
 
     # Like a Cancel for an unknown task: neither a crash nor a verdict. This agent knows
     # nothing of the task, so it ends nothing; the backend learns by asking.
-    assert not _errors(transport), "nothing is said about a task this agent does not have"
+    assert not _errors(transport), (
+        "nothing is said about a task this agent does not have"
+    )
 
 
 @pytest.mark.asyncio
@@ -171,10 +171,6 @@ async def test_interrupt_reaches_the_actor_and_reports_interrupted(
     assert "task-1" not in agent.running_assignments, (
         "a terminal report must clear the running-assignment record"
     )
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -286,7 +282,9 @@ async def test_teardown_says_nothing_for_tasks_a_backend_watches_over(
     does with each task what its caller asked for (a workflow goes on in the next one).
     A ``Critical`` from here would end the task first.
     """
-    agent = _WatchedAgent(name="watched", transport=transport, app_registry=AppRegistry())
+    agent = _WatchedAgent(
+        name="watched", transport=transport, app_registry=AppRegistry()
+    )
     started = asyncio.Event()
     cancelled = asyncio.Event()
 

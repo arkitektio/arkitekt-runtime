@@ -1,14 +1,13 @@
 """Tests for union-branch predication over ports."""
 
-
 import pytest
-
 from arkitekt_spec.actions import (
     ArgPortInput,
     PortKind,
 )
 from arkitekt_spec.declare.definition.define import prepare_definition
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
 from arkitekt_runtime.structures.serialization.postman import ashrink_args
 from arkitekt_runtime.structures.serialization.predication import predicate_port
 

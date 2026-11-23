@@ -7,9 +7,9 @@ background and shutdown hooks needing it are not run. States stay required.
 import asyncio
 
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
 
 from arkitekt_runtime.local import acall_local, local_agent
-from arkitekt_spec.declare.app import AppRegistry
 
 
 def build_registry(ran: dict[str, asyncio.Event]) -> AppRegistry:

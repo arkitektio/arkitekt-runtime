@@ -16,18 +16,17 @@ a call's returns are; a dismissal raises
 from collections.abc import Callable
 from typing import Any, get_type_hints
 
-from koil import unkoil
-
 from arkitekt_spec.declare.definition.define import is_named_tuple
 from arkitekt_spec.declare.interactions import DeclaredInteraction, DeclaredInteractions
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_spec.declare.task import TaskBlok
+from koil import unkoil
 
-from arkitekt_runtime.task import Task
 from arkitekt_runtime.structures.serialization.actor import (
     aexpand_actor_returns,
     ashrink_actor_args,
 )
+from arkitekt_runtime.task import Task
 
 
 class AskProxy:
@@ -36,19 +35,37 @@ class AskProxy:
     Made by :class:`InteractionsProxy` for the task the action runs in, never by user code.
     """
 
-    def __init__(self, key: str, ask: DeclaredInteraction, *, task: Task, structure_registry: StructureRegistry) -> None:
+    def __init__(
+        self,
+        key: str,
+        ask: DeclaredInteraction,
+        *,
+        task: Task,
+        structure_registry: StructureRegistry,
+    ) -> None:
         self.key = key
         self.ask = ask
         self.task = task
         self.structure_registry = structure_registry
         returns = get_type_hints(ask.method.func).get("return")
-        self._named: Callable[..., Any] | None = returns if returns is not None and is_named_tuple(returns) else None
+        self._named: Callable[..., Any] | None = (
+            returns if returns is not None and is_named_tuple(returns) else None
+        )
 
     async def aask(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 -- the ask's own arguments and answer
         """Ask and await the answer, expanded as the method's return declares it."""
-        shrunk = await ashrink_actor_args(self.ask.definition, args, kwargs, structure_registry=self.structure_registry)
-        values = await self.task._aask_declared(TaskBlok(key=self.key, args=shrunk), self.ask.description)
-        returns = await aexpand_actor_returns(self.ask.definition, values, self.structure_registry)
+        shrunk = await ashrink_actor_args(
+            self.ask.definition,
+            args,
+            kwargs,
+            structure_registry=self.structure_registry,
+        )
+        values = await self.task._aask_declared(
+            TaskBlok(key=self.key, args=shrunk), self.ask.description
+        )
+        returns = await aexpand_actor_returns(
+            self.ask.definition, values, self.structure_registry
+        )
         if self._named is not None:
             return self._named(*returns)
         if not returns:
@@ -70,7 +87,14 @@ class InformProxy:
     Made by :class:`InteractionsProxy` for the task the action runs in, never by user code.
     """
 
-    def __init__(self, key: str, inform: DeclaredInteraction, *, task: Task, structure_registry: StructureRegistry) -> None:
+    def __init__(
+        self,
+        key: str,
+        inform: DeclaredInteraction,
+        *,
+        task: Task,
+        structure_registry: StructureRegistry,
+    ) -> None:
         self.key = key
         self.inform = inform
         self.task = task
@@ -78,8 +102,15 @@ class InformProxy:
 
     async def ainform(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401 -- the inform's own arguments
         """Show the blok, opened on the arguments; nothing waits on it."""
-        shrunk = await ashrink_actor_args(self.inform.definition, args, kwargs, structure_registry=self.structure_registry)
-        await self.task._ainform_declared(TaskBlok(key=self.key, args=shrunk), self.inform.description)
+        shrunk = await ashrink_actor_args(
+            self.inform.definition,
+            args,
+            kwargs,
+            structure_registry=self.structure_registry,
+        )
+        await self.task._ainform_declared(
+            TaskBlok(key=self.key, args=shrunk), self.inform.description
+        )
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 -- ditto
         """Show as the protocol declared it: awaitable if the method is ``async``, else blocking."""
@@ -92,11 +123,19 @@ class InteractionsProxy:
     """An interactions protocol, made for one task: each ask and inform an attribute."""
 
     def __init__(
-        self, parameter: str, interactions: DeclaredInteractions, *, task: Task, structure_registry: StructureRegistry
+        self,
+        parameter: str,
+        interactions: DeclaredInteractions,
+        *,
+        task: Task,
+        structure_registry: StructureRegistry,
     ) -> None:
         self._interactions: dict[str, AskProxy | InformProxy] = {
             name: (AskProxy if each.role == "ask" else InformProxy)(
-                f"{parameter}.{name}", each, task=task, structure_registry=structure_registry
+                f"{parameter}.{name}",
+                each,
+                task=task,
+                structure_registry=structure_registry,
             )
             for name, each in interactions.interactions.items()
         }

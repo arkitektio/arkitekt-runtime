@@ -158,7 +158,9 @@ def _write_class(cls: type) -> type:
 
     def __setattr__(self: Any, name: str, value: Any) -> None:  # noqa: ANN401, N807
         config = object.__getattribute__(self, "_event_config")
-        mutation = object.__getattribute__(self, "__dict__")["__rekuest_mutations__"][id(self)]
+        mutation = object.__getattribute__(self, "__dict__")["__rekuest_mutations__"][
+            id(self)
+        ]
         with config.mutating(mutation):
             cls.__setattr__(self, name, value)
 

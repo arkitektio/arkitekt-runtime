@@ -29,30 +29,51 @@ import secrets
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from koil import check_cancelled, unkoil, unkoil_gen
-
-from pydantic import JsonValue
-
 from arkitekt_spec.actions import Execution, ReturnPortInput
 from arkitekt_spec.declare.agents.errors import NoCallerError
-from arkitekt_spec.declare.errors import AgentLost, DismissedError, NotAWorkflowError, NotDeclaredError, StateChanged
-from arkitekt_spec.declare.task import StateRef, aretry, retry
-from arkitekt_spec.declare.task import AssignmentHook, Decision, LocalTask, LogLevel, TaskBlok, as_task_blok
+from arkitekt_spec.declare.errors import (
+    AgentLost,
+    DismissedError,
+    NotAWorkflowError,
+    NotDeclaredError,
+    StateChanged,
+)
+from arkitekt_spec.declare.task import (
+    AssignmentHook,
+    Decision,
+    LocalTask,
+    LogLevel,
+    StateRef,
+    TaskBlok,
+    aretry,
+    as_task_blok,
+    retry,
+)
 from arkitekt_spec.declare.task import Task as TaskProtocol
+from koil import check_cancelled, unkoil, unkoil_gen
+from pydantic import JsonValue
+
 from arkitekt_runtime.messages import EffectKind
 from arkitekt_runtime.state.observable import config_of
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Callable, Generator, Iterator
+    from collections.abc import (
+        AsyncGenerator,
+        AsyncIterator,
+        Callable,
+        Generator,
+        Iterator,
+    )
+
+    from arkitekt_spec.declare.structures.registry import StructureRegistry
+    from arkitekt_spec.declare.structures.types import JSONSerializable
+    from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
+    from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
 
     from arkitekt_runtime.actors.helper import AssignmentHelper
     from arkitekt_runtime.invoke import AgentTarget
-    from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_runtime.messages import Assign
     from arkitekt_runtime.postmans.types import Postman
-    from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
-    from arkitekt_spec.declare.structures.registry import StructureRegistry
-    from arkitekt_spec.declare.structures.types import JSONSerializable
 
 logger = logging.getLogger("arkitekt.task")
 
@@ -65,20 +86,23 @@ _LOG_LEVELS = {
 }
 
 
-
 def _json(value: Any) -> Any:  # noqa: ANN401
     """``value``, if a recorded effect can carry it (JSON); else a clear TypeError."""
     try:
         json.dumps(value)
     except TypeError as e:
-        raise TypeError(f"task.record(...) records JSON only; got {type(value).__name__}: {e}") from None
+        raise TypeError(
+            f"task.record(...) records JSON only; got {type(value).__name__}: {e}"
+        ) from None
     return value
-
 
 
 def _recorded(decision: Decision) -> dict[str, Any]:
     """A decision as a workflow records it: a hold's without ``values``, as before asks had them."""
-    return decision.model_dump(mode="json", exclude={"values"} if decision.values is None else None)
+    return decision.model_dump(
+        mode="json", exclude={"values"} if decision.values is None else None
+    )
+
 
 class Task:
     """One running assignment, as the action that runs it sees it."""
@@ -194,12 +218,16 @@ class Task:
         A resumed workflow sleeps until the recorded deadline, so a sleep its agent died
         in only waits for what is left of it.
         """
-        deadline = await self._atake(EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds))
+        deadline = await self._atake(
+            EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds)
+        )
         await asyncio.sleep(max(0.0, deadline - time.time()))
 
     def sleep(self, seconds: float) -> None:
         """Sleep for ``seconds``: the deadline is recorded, then slept until."""
-        deadline = unkoil(self._atake, EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds))
+        deadline = unkoil(
+            self._atake, EffectKind.SLEEP, lambda: time.time() + max(0.0, seconds)
+        )
         time.sleep(max(0.0, deadline - time.time()))
 
     async def arecord(self, fn: "Callable[[], Any]", key: str | None = None) -> Any:  # noqa: ANN401
@@ -241,14 +269,30 @@ class Task:
 
     # -- deciding about a lost step ---------------------------------------- #
 
-    def retry(self, call: "Callable[..., Any]", *args: Any, attempts: int = 3, if_started: bool = False, **kwargs: Any) -> Any:  # noqa: ANN401
+    def retry(
+        self,
+        call: "Callable[..., Any]",
+        *args: Any,
+        attempts: int = 3,
+        if_started: bool = False,
+        **kwargs: Any,
+    ) -> Any:  # noqa: ANN401
         """Call ``call(*args, **kwargs)``, again when its agent is lost and that is safe:
         the lost step never started, or ``if_started=True``. Anything else is re-raised."""
         return retry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
 
-    async def aretry(self, call: "Callable[..., Any]", *args: Any, attempts: int = 3, if_started: bool = False, **kwargs: Any) -> Any:  # noqa: ANN401
+    async def aretry(
+        self,
+        call: "Callable[..., Any]",
+        *args: Any,
+        attempts: int = 3,
+        if_started: bool = False,
+        **kwargs: Any,
+    ) -> Any:  # noqa: ANN401
         """:meth:`retry`, awaiting ``call``."""
-        return await aretry(call, *args, attempts=attempts, if_started=if_started, **kwargs)
+        return await aretry(
+            call, *args, attempts=attempts, if_started=if_started, **kwargs
+        )
 
     @contextlib.asynccontextmanager
     async def aguard(self, state: object, *paths: str) -> "AsyncIterator[None]":
@@ -317,18 +361,38 @@ class Task:
         postman, _, assignment = self._caller(calling=False)
         ask = getattr(postman, "astate_revision", None)
         if ask is None:
-            raise NoCallerError(f"Task {self.id!r} runs where nothing can answer a guard.")
+            raise NoCallerError(
+                f"Task {self.id!r} runs where nothing can answer a guard."
+            )
         found, recorded, key = await self._helper.areplay(EffectKind.RECORD)
         if found:
-            response = await ask(parent=assignment.task, dependency=state.dependency, state=state.state, since=recorded, paths=paths)
+            response = await ask(
+                parent=assignment.task,
+                dependency=state.dependency,
+                state=state.state,
+                since=recorded,
+                paths=paths,
+            )
             if response.changed:
-                raise StateChanged(response.detail or f"{state.state!r} of {state.dependency!r} changed while the workflow was down.")
+                raise StateChanged(
+                    response.detail
+                    or f"{state.state!r} of {state.dependency!r} changed while the workflow was down."
+                )
             return
-        response = await ask(parent=assignment.task, dependency=state.dependency, state=state.state, paths=paths)
+        response = await ask(
+            parent=assignment.task,
+            dependency=state.dependency,
+            state=state.state,
+            paths=paths,
+        )
         await self._helper.aeffect(EffectKind.RECORD, response.revision, key=key)
 
     async def ahold(
-        self, message: str, *, prompt: "AssignPrompt | None" = None, lost: AgentLost | None = None
+        self,
+        message: str,
+        *,
+        prompt: "AssignPrompt | None" = None,
+        lost: AgentLost | None = None,
     ) -> Decision:
         """Wait for a person to decide: the task is HELD with ``message`` (and ``prompt``)
         until someone approves or denies it, and returns their :class:`Decision`.
@@ -343,7 +407,12 @@ class Task:
         if found:
             return Decision.model_validate(recorded)
         details = (
-            {"started": lost.started, "last_progress": lost.last_progress, "effects": lost.effects, "task": lost.task}
+            {
+                "started": lost.started,
+                "last_progress": lost.last_progress,
+                "effects": lost.effects,
+                "task": lost.task,
+            }
             if lost is not None
             else None
         )
@@ -352,7 +421,11 @@ class Task:
         return decision
 
     def hold(
-        self, message: str, *, prompt: "AssignPrompt | None" = None, lost: AgentLost | None = None
+        self,
+        message: str,
+        *,
+        prompt: "AssignPrompt | None" = None,
+        lost: AgentLost | None = None,
     ) -> Decision:
         """Wait for a person to decide (see :meth:`ahold`)."""
         return unkoil(self.ahold, message, prompt=prompt, lost=lost)
@@ -415,7 +488,9 @@ class Task:
         through here, ``blok`` naming its declared inform by key."""
         await self._helper.ainform(blok, message)
 
-    async def adynamic_inform(self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None) -> None:
+    async def adynamic_inform(
+        self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None
+    ) -> None:
         """Show a person a blok made now (a :class:`TaskBlok`, or BSX source) while the task
         goes on: a chart of its progress, a result. Nothing waits; a blok the server cannot
         make is logged, never raised.
@@ -442,13 +517,17 @@ class Task:
             )
         await self._helper.ainform(task_blok, task_blok.name)
 
-    def dynamic_inform(self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None) -> None:
+    def dynamic_inform(
+        self, blok: "TaskBlok | str", *, args: dict[str, JsonValue] | None = None
+    ) -> None:
         """Show a person a blok made now while the task goes on (see :meth:`adynamic_inform`)."""
         return unkoil(self.adynamic_inform, blok, args=args)
 
     # -- calling ---------------------------------------------------------- #
 
-    def _caller(self, calling: bool = True) -> "tuple[Postman, StructureRegistry, Assign]":
+    def _caller(
+        self, calling: bool = True
+    ) -> "tuple[Postman, StructureRegistry, Assign]":
         """The socket, the registry and the parent for a call made as this task's child.
 
         Read off the assignment rather than looked up: the postman is the agent's
@@ -468,7 +547,11 @@ class Task:
         """
         agent = self._helper.agent
         assignment = self._helper.assignment
-        if calling and self._helper.execution == Execution.WORKFLOW and not self._helper.dynamic_calls:
+        if (
+            calling
+            and self._helper.execution == Execution.WORKFLOW
+            and not self._helper.dynamic_calls
+        ):
             raise NotDeclaredError(
                 f"Task {self.id!r} called an action it found at run time, which only a workflow "
                 "declaring dynamic_calls=True may: call it through a dependency (a parameter "
@@ -691,7 +774,15 @@ class Task:
         from arkitekt_runtime.calls import acall_dependency_raw
 
         postman, _, parent = self._caller(calling=False)
-        return await acall_dependency_raw(dependency, method, kwargs or {}, postman=postman, parent=parent, reference=reference, call_key=call_key)
+        return await acall_dependency_raw(
+            dependency,
+            method,
+            kwargs or {},
+            postman=postman,
+            parent=parent,
+            reference=reference,
+            call_key=call_key,
+        )
 
     async def aiterate_dependency_raw(
         self,
@@ -709,7 +800,15 @@ class Task:
         from arkitekt_runtime.calls import aiterate_dependency_raw
 
         postman, _, parent = self._caller(calling=False)
-        async for value in aiterate_dependency_raw(dependency, method, kwargs or {}, postman=postman, parent=parent, reference=reference, call_key=call_key):
+        async for value in aiterate_dependency_raw(
+            dependency,
+            method,
+            kwargs or {},
+            postman=postman,
+            parent=parent,
+            reference=reference,
+            call_key=call_key,
+        ):
             yield value
 
     async def aiterate_raw(
@@ -761,7 +860,9 @@ class Task:
         self._helper.install_hook(hook)
 
     @classmethod
-    def local(cls, id: str = "local", user: str = "local", org: str = "local") -> LocalTask:
+    def local(
+        cls, id: str = "local", user: str = "local", org: str = "local"
+    ) -> LocalTask:
         """A task for calling an action directly, with no agent behind it.
 
         The spec's :class:`~arkitekt_spec.declare.task.LocalTask`: logs and progress go

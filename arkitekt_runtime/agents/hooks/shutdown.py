@@ -5,10 +5,10 @@ from typing import (
     Any,
 )
 
-from arkitekt_spec.declare.agents.types import BoundApp
-from koil.bridge import run_threaded
-from arkitekt_spec.declare.state.publish import StateHolder
 from arkitekt_spec.declare.agents.hooks.declare import ShutdownWithVariables
+from arkitekt_spec.declare.agents.types import BoundApp
+from arkitekt_spec.declare.state.publish import StateHolder
+from koil.bridge import run_threaded
 
 if TYPE_CHECKING:
     from arkitekt_spec.declare.structures.registry import StructureRegistry
@@ -22,7 +22,9 @@ class WrappedShutdownHook(ShutdownWithVariables):
     """Shutdown hook that runs in the event loop"""
 
     def __init__(
-        self, func: AsyncShutdownFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: AsyncShutdownFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the shutdown hook
 
@@ -48,7 +50,9 @@ class ThreadedShutdownHook(ShutdownWithVariables):
     """Shutdown hook that runs in a thread"""
 
     def __init__(
-        self, func: ThreadedShutdownFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: ThreadedShutdownFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the shutdown hook
 

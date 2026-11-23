@@ -12,18 +12,11 @@ dragging the generated client surface into the agnostic runtime.
 """
 
 import uuid
-from typing import Any
 from collections.abc import AsyncGenerator
-
-from koil import unkoil, unkoil_gen
-from arkitekt_spec.scalars import ID, coerce_id
+from typing import Any
 
 from arkitekt_spec.actions import DefinitionInput
-from arkitekt_runtime.types import (
-    HookInput,
-    TaskEventKind,
-    TaskPolicy,
-)
+from arkitekt_spec.declare.definition.policy import CallPolicy
 from arkitekt_spec.declare.errors import (
     STATE_PRECONDITION,
     AgentLost,
@@ -32,14 +25,21 @@ from arkitekt_spec.declare.errors import (
     ErrorCallError,
     StatePreconditionFailed,
 )
-from arkitekt_spec.declare.definition.policy import CallPolicy
+from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_spec.declare.task import AssignPrompt, StateRequirement
+from arkitekt_spec.scalars import ID, coerce_id
+from koil import unkoil, unkoil_gen
+
 from arkitekt_runtime.messages import Assign, JSONSerializable
 from arkitekt_runtime.postmans.types import OrdersCalls, Postman
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_runtime.structures.serialization.actor import (
     aexpand_actor_returns,
     ashrink_actor_args,
+)
+from arkitekt_runtime.types import (
+    HookInput,
+    TaskEventKind,
+    TaskPolicy,
 )
 
 __all__: list[str] = []
@@ -165,7 +165,8 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
             value = getattr(i, "value", None)
             if isinstance(value, dict) and value.get("code") == STATE_PRECONDITION:
                 raise StatePreconditionFailed(
-                    i.message or "The agent's state does not match.", task=getattr(i, "task", None)
+                    i.message or "The agent's state does not match.",
+                    task=getattr(i, "task", None),
                 )
             raise ErrorCallError(i.message)
 
@@ -188,8 +189,7 @@ async def _astream_raw(  # noqa: PLR0913 - the call description, mirrored from t
         # The agent-side postman surfaces them the same way (``agents.caller._adapt``).
         if i.kind in (TaskEventKind.CANCELLED, TaskEventKind.INTERRUPTED):
             raise CriticalCallError(
-                i.message
-                or f"The task was {i.kind.value.lower()} before it completed."
+                i.message or f"The task was {i.kind.value.lower()} before it completed."
             )
 
 
@@ -305,9 +305,7 @@ async def acall_dependency(
     finally:
         release_call(postman, parent, ticket)
 
-    returns = await aexpand_actor_returns(
-        definition, raw_returns, structure_registry
-    )
+    returns = await aexpand_actor_returns(definition, raw_returns, structure_registry)
     if len(returns) == 1:
         return returns[0]
     return returns

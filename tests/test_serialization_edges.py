@@ -4,10 +4,10 @@ from enum import Enum
 from typing import Literal
 
 import pytest
-
-from arkitekt_runtime.actors.types import Shelver
 from arkitekt_spec.declare.definition.define import prepare_definition
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.types import Shelver
 from arkitekt_runtime.structures.serialization.actor import shrink_outputs
 from arkitekt_runtime.structures.serialization.expand import aexpand_return
 from arkitekt_runtime.structures.serialization.predication import predicate_port
@@ -53,12 +53,6 @@ def str_enum_with_default(x: Color = Color.RED) -> str:
     return x
 
 
-
-
-
-
-
-
 @pytest.mark.asyncio
 async def test_float_expands_json_ints() -> None:
     registry = StructureRegistry()
@@ -87,11 +81,9 @@ async def test_int_literal_shrinks_on_the_client() -> None:
 async def test_single_nullable_return_of_none(mock_shelver: Shelver) -> None:
     registry = StructureRegistry()
     definition = prepare_definition(maybe_nothing, registry)
-    assert await shrink_outputs(definition, None, registry, mock_shelver) == {"return0": None}
-
-
-
-
+    assert await shrink_outputs(definition, None, registry, mock_shelver) == {
+        "return0": None
+    }
 
 
 def takes_flag(x: bool) -> bool:

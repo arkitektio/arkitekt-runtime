@@ -16,7 +16,9 @@ from contextvars import ContextVar
 from typing import Any
 
 #: The id of the task whose code is running (``None`` outside of one).
-current_task_id: ContextVar[str | None] = ContextVar("arkitekt_current_task_id", default=None)
+current_task_id: ContextVar[str | None] = ContextVar(
+    "arkitekt_current_task_id", default=None
+)
 
 
 @contextmanager
@@ -27,6 +29,7 @@ def task_id_scope(task_id: str | None) -> Iterator[None]:
         yield
     finally:
         current_task_id.reset(token)
+
 
 #: A context-manager factory entered around an assignment, handed its task.
 TaskScope = Callable[[Any], AbstractContextManager[Any]]

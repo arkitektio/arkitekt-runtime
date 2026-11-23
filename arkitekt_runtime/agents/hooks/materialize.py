@@ -8,11 +8,15 @@ from arkitekt_spec.declare.agents.hooks.declare import (
     ShutdownHookDeclaration,
     StartupHookDeclaration,
 )
+
 from arkitekt_runtime.agents.hooks.background import (
     WrappedBackgroundTask,
     WrappedThreadedBackgroundTask,
 )
-from arkitekt_runtime.agents.hooks.shutdown import ThreadedShutdownHook, WrappedShutdownHook
+from arkitekt_runtime.agents.hooks.shutdown import (
+    ThreadedShutdownHook,
+    WrappedShutdownHook,
+)
 from arkitekt_runtime.agents.hooks.startup import (
     ThreadedStartupHook,
     WrappedLifecycleHook,
@@ -33,7 +37,11 @@ def materialize_hook(declaration: Any) -> Any:  # noqa: ANN401
     elif isinstance(declaration, StartupHookDeclaration):
         cls = ThreadedStartupHook if declaration.threaded else WrappedStartupHook
     elif isinstance(declaration, BackgroundDeclaration):
-        cls = WrappedThreadedBackgroundTask if declaration.threaded else WrappedBackgroundTask
+        cls = (
+            WrappedThreadedBackgroundTask
+            if declaration.threaded
+            else WrappedBackgroundTask
+        )
     elif isinstance(declaration, ShutdownHookDeclaration):
         cls = ThreadedShutdownHook if declaration.threaded else WrappedShutdownHook
     else:

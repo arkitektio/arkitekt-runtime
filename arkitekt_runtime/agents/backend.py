@@ -20,7 +20,6 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-
 logger = logging.getLogger(__name__)
 
 

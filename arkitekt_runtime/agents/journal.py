@@ -78,7 +78,9 @@ WRITE_BATCH = 256
 #: How long a reader waits for the journal to be persisted up to what it reads.
 FLUSH_TIMEOUT = 5.0
 
-TERMINAL_KINDS = frozenset({"COMPLETED", "FAILED", "CRITICAL", "CANCELLED", "INTERRUPTED"})
+TERMINAL_KINDS = frozenset(
+    {"COMPLETED", "FAILED", "CRITICAL", "CANCELLED", "INTERRUPTED"}
+)
 #: Kinds that belong to the whole session rather than to a task, state or lock.
 SESSION_KINDS = ("SESSION_INIT", "STATE_SNAPSHOT")
 #: Kinds that carry state values.
@@ -164,7 +166,9 @@ def task_of(message: messages.Message) -> str | None:
         return message.task_id
     if isinstance(message, messages.StateUpdate):
         return message.task
-    if isinstance(message, (messages.Unshelve, messages.SessionInit, messages.StateSnapshot)):
+    if isinstance(
+        message, (messages.Unshelve, messages.SessionInit, messages.StateSnapshot)
+    ):
         return None
     if isinstance(message, (messages.AssignRequest, messages.ControlRequest)):
         # A request names the task it is about (a child), which is not a task this agent
@@ -293,7 +297,9 @@ def entry_matches(
         return not lock_keys or entry.subject in lock_keys
     if entry.kind in SESSION_KINDS:
         return True
-    return entry.action_key is None or not action_keys or entry.action_key in action_keys
+    return (
+        entry.action_key is None or not action_keys or entry.action_key in action_keys
+    )
 
 
 # ------------------------------------------------------------------- fold --
@@ -469,15 +475,20 @@ class Fold:
             "tasks": {
                 task_id: task.to_json()
                 for task_id, task in self.tasks.items()
-                if actions is None or (task.action_key is not None and task.action_key in actions)
+                if actions is None
+                or (task.action_key is not None and task.action_key in actions)
             },
             "locks": {
-                key: task for key, task in self.locks.items() if locks is None or key in locks
+                key: task
+                for key, task in self.locks.items()
+                if locks is None or key in locks
             },
         }
 
 
-def world_from_entries(entries: Sequence[JournalEntry], pos: int) -> tuple[JournalEntry, Fold] | None:
+def world_from_entries(
+    entries: Sequence[JournalEntry], pos: int
+) -> tuple[JournalEntry, Fold] | None:
     """The entry at ``pos`` and the world as of it, from one session's entries in order.
 
     States are replayed from the last ``SESSION_INIT``/``STATE_SNAPSHOT`` at or before
@@ -487,7 +498,11 @@ def world_from_entries(entries: Sequence[JournalEntry], pos: int) -> tuple[Journ
     if at is None:
         return None
     anchor = max(
-        (entry.pos for entry in entries if entry.pos <= pos and entry.kind in SESSION_KINDS),
+        (
+            entry.pos
+            for entry in entries
+            if entry.pos <= pos and entry.kind in SESSION_KINDS
+        ),
         default=0,
     )
     fold = Fold()
@@ -718,7 +733,8 @@ class Journal:
                     self._finished.clear()
                 self._global_rev = 0
             elif isinstance(
-                message, (messages.StatePatch, messages.StateUpdate, messages.StateSnapshot)
+                message,
+                (messages.StatePatch, messages.StateUpdate, messages.StateSnapshot),
             ):
                 self._global_rev = message.global_rev
 
@@ -749,7 +765,9 @@ class Journal:
                 numbered_step=task_id is not None and task_id in self._steps,
             )
 
-    def record_assign(self, assign: messages.Assign, action_key: str) -> JournalEntry | None:
+    def record_assign(
+        self, assign: messages.Assign, action_key: str
+    ) -> JournalEntry | None:
         """Record the assignment that starts a task (secrets removed). It takes no
         step (the task's ``STARTED`` is step 1), and a probe's is not recorded."""
         if assign.probe or is_probe_task(assign.task):
@@ -758,7 +776,9 @@ class Journal:
         payload.pop("token", None)
         payload["type"] = "ASSIGN"
         with self._lock:
-            return self._append("ASSIGN", assign.task, action_key, None, payload, assign.id, None)
+            return self._append(
+                "ASSIGN", assign.task, action_key, None, payload, assign.id, None
+            )
 
     def _append(
         self,
@@ -775,7 +795,9 @@ class Journal:
         if session is None:
             return None
         self._pos += 1
-        step = self._next_step(task_id) if numbered_step and task_id is not None else None
+        step = (
+            self._next_step(task_id) if numbered_step and task_id is not None else None
+        )
         payload["id"] = message_id
         if action_key is None and task_id is not None:
             known = self._fold.tasks.get(task_id)
@@ -818,7 +840,10 @@ class Journal:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            logger.warning("No running event loop; the journal entry %s is not persisted", entry.pos)
+            logger.warning(
+                "No running event loop; the journal entry %s is not persisted",
+                entry.pos,
+            )
             return
         if self._writer_loop is not loop or self._writer is None or self._writer.done():
             self._write_queue = asyncio.Queue()
@@ -874,7 +899,11 @@ class Journal:
             deadline = time.monotonic() + timeout
             while not reached():
                 if time.monotonic() > deadline:
-                    logger.warning("The journal was not persisted up to %s within %ss", pos, timeout)
+                    logger.warning(
+                        "The journal was not persisted up to %s within %ss",
+                        pos,
+                        timeout,
+                    )
                     return False
                 await asyncio.sleep(0.005)
             return True
@@ -883,7 +912,9 @@ class Journal:
                 await asyncio.wait_for(condition.wait_for(reached), timeout)
             return True
         except TimeoutError:
-            logger.warning("The journal was not persisted up to %s within %ss", pos, timeout)
+            logger.warning(
+                "The journal was not persisted up to %s within %ss", pos, timeout
+            )
             return False
 
     async def aflush(self, timeout: float = FLUSH_TIMEOUT) -> bool:

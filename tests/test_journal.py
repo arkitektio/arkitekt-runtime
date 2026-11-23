@@ -30,10 +30,18 @@ from arkitekt_runtime.state.write import write_view
 
 
 def _session_init(session: str) -> messages.SessionInit:
-    return messages.SessionInit(session_id=session, states={"Camera": {"exposure": 1, "tags": []}})
+    return messages.SessionInit(
+        session_id=session, states={"Camera": {"exposure": 1, "tags": []}}
+    )
 
 
-def _patch(rev: int, task: str | None, op: str = "replace", path: str = "/exposure", value: object = None) -> messages.StatePatch:
+def _patch(
+    rev: int,
+    task: str | None,
+    op: str = "replace",
+    path: str = "/exposure",
+    value: object = None,
+) -> messages.StatePatch:
     return messages.StatePatch(
         session_id="s",
         global_rev=rev,
@@ -84,7 +92,15 @@ def test_numbers_and_folds() -> None:
     assert seen == [
         (kind, pos + 1)
         for pos, kind in enumerate(
-            ["SESSION_INIT", "ASSIGN", "LOCK", "STATE_PATCH", "YIELD", "COMPLETED", "UNLOCK"]
+            [
+                "SESSION_INIT",
+                "ASSIGN",
+                "LOCK",
+                "STATE_PATCH",
+                "YIELD",
+                "COMPLETED",
+                "UNLOCK",
+            ]
         )
     ]
 
@@ -102,7 +118,9 @@ def test_numbers_and_folds() -> None:
         assert "token" not in recent[1].payload, "secrets are not recorded"
         assert recent[1].payload["type"] == "ASSIGN"
         assert recent[6].task_id == "t", "UNLOCK names the holder"
-        assert recent[6].action_key == "set", "an UNLOCK carries its holder's action key"
+        assert recent[6].action_key == "set", (
+            "an UNLOCK carries its holder's action key"
+        )
         assert recent[3].global_rev == 1
         assert [e.pos for e in view.recent(2, 4) or []] == [3, 4]
         assert all("seq" not in e.payload for e in recent)
@@ -148,7 +166,9 @@ def test_a_snapshot_is_not_applied_twice() -> None:
     journal.append(_patch(1, "t", op="add", path="/tags/-", value="a"))
     journal.append(
         messages.StateSnapshot(
-            session_id="s", global_rev=2, snapshots={"Camera": {"exposure": 1, "tags": ["a", "b"]}}
+            session_id="s",
+            global_rev=2,
+            snapshots={"Camera": {"exposure": 1, "tags": ["a", "b"]}},
         )
     )
     journal.append(_patch(2, "t", op="add", path="/tags/-", value="b"))
@@ -165,7 +185,9 @@ def test_a_snapshot_is_not_applied_twice() -> None:
 
 
 def test_key_filters_route_like_the_websocket() -> None:
-    def entry(kind: str, subject: str | None = None, action_key: str | None = None) -> JournalEntry:
+    def entry(
+        kind: str, subject: str | None = None, action_key: str | None = None
+    ) -> JournalEntry:
         return JournalEntry("s", 1, 0, 0, kind, "t", action_key, subject, "m", {})
 
     patch = entry("STATE_PATCH", subject="Camera")
@@ -173,15 +195,23 @@ def test_key_filters_route_like_the_websocket() -> None:
     snapshot = entry("STATE_SNAPSHOT")
     log = entry("LOG", action_key="act")
     anonymous = entry("CRITICAL")
-    only_other = {"action_keys": ["other"], "state_keys": ["Other"], "lock_keys": ["other"]}
-    assert [entry_matches(e, **only_other) for e in (patch, lock, snapshot, log, anonymous)] == [
+    only_other = {
+        "action_keys": ["other"],
+        "state_keys": ["Other"],
+        "lock_keys": ["other"],
+    }
+    assert [
+        entry_matches(e, **only_other) for e in (patch, lock, snapshot, log, anonymous)
+    ] == [
         False,
         False,
         True,
         False,
         True,
     ]
-    assert entry_matches(patch, action_keys=["x"]), "an unset key filter admits every key"
+    assert entry_matches(patch, action_keys=["x"]), (
+        "an unset key filter admits every key"
+    )
     assert not entry_matches(log, kinds=["YIELD"])
     assert entry_matches(log, task_id="t") and not entry_matches(log, task_id="u")
 
@@ -213,7 +243,9 @@ async def test_persists_in_order_in_batches() -> None:
 
         async def awrite_journal(self, entries: Sequence[JournalEntry]) -> None:
             self.batches += 1
-            assert len({e.session_id for e in entries}) == 1, "a batch never spans sessions"
+            assert len({e.session_id for e in entries}) == 1, (
+                "a batch never spans sessions"
+            )
             self.positions.extend(e.pos for e in entries)
             await asyncio.sleep(0)
 
@@ -296,7 +328,9 @@ class Camera:
 def _evented_camera() -> Camera:
     from arkitekt_spec.actions import StateDefinitionInput
 
-    config = StateConfig(state_name="Camera", definition=StateDefinitionInput(name="Camera", ports=[]))
+    config = StateConfig(
+        state_name="Camera", definition=StateDefinitionInput(name="Camera", ports=[])
+    )
     return make_evented(Camera(), config, "")
 
 
@@ -311,7 +345,9 @@ def test_a_closed_task_changes_no_state() -> None:
         view.exposure = 3.0
     with pytest.raises(TaskClosedError):
         view.tags.extend(["b", "c"])
-    assert camera.exposure == 2.0 and camera.tags == ["a"], "a refused change changes nothing"
+    assert camera.exposure == 2.0 and camera.tags == ["a"], (
+        "a refused change changes nothing"
+    )
 
 
 def test_the_gate_does_not_change_what_a_mutation_equals() -> None:
@@ -343,9 +379,15 @@ def test_unstamped_frames_are_unchanged() -> None:
         "value",
         "task_id",
     }
-    stamped = progress.model_copy(update={"pos": 4, "journal_session": "s", "agent_ts": 1.5})
+    stamped = progress.model_copy(
+        update={"pos": 4, "journal_session": "s", "agent_ts": 1.5}
+    )
     dumped = json.loads(stamped.model_dump_json())
-    assert (dumped["pos"], dumped["journal_session"], dumped["agent_ts"]) == (4, "s", 1.5)
+    assert (dumped["pos"], dumped["journal_session"], dumped["agent_ts"]) == (
+        4,
+        "s",
+        1.5,
+    )
     assert "pos" not in messages.Register.model_fields
 
 
@@ -356,7 +398,9 @@ def test_init_and_journal_ack_parse() -> None:
     from pydantic import TypeAdapter
 
     adapter: TypeAdapter[messages.ToAgentMessage] = TypeAdapter(messages.ToAgentMessage)
-    ack = adapter.validate_python({"type": "JOURNAL_ACK", "journal_session": "s", "through": 3})
+    ack = adapter.validate_python(
+        {"type": "JOURNAL_ACK", "journal_session": "s", "through": 3}
+    )
     assert isinstance(ack, messages.JournalAck) and ack.through == 3
     init = adapter.validate_python({"type": "INIT", "agent": "a", "journal": True})
     assert isinstance(init, messages.Init)

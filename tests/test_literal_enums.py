@@ -4,12 +4,15 @@ from enum import Enum
 from typing import Literal
 
 import pytest
-
-from arkitekt_runtime.actors.types import Shelver
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.definition.define import prepare_definition
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.actor import expand_inputs, shrink_outputs
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.structures.serialization.actor import (
+    expand_inputs,
+    shrink_outputs,
+)
 
 
 def literal_arg_function(x: Literal["a", "b", "c"]) -> str:

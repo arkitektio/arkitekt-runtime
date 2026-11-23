@@ -1,7 +1,7 @@
 """Error helpers that attach port / path context to (de)serialization failures."""
 
-from typing import Any
 from collections.abc import Sequence
+from typing import Any
 
 from arkitekt_spec.declare.structures.errors import ExpandingError, ShrinkingError
 from arkitekt_spec.declare.targets import SerializablePort

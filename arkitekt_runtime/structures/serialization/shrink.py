@@ -7,12 +7,11 @@ handler in :data:`SHRINKERS`; container kinds recurse through
 """
 
 import asyncio
+from collections.abc import Sequence
 from enum import Enum
 from typing import Any, cast
-from collections.abc import Sequence
 
 from arkitekt_spec.actions import PortKind
-from arkitekt_spec.declare.targets import SerializableDefinition
 from arkitekt_spec.declare.structures.errors import (
     PortShrinkingError,
     ShrinkingError,
@@ -20,6 +19,9 @@ from arkitekt_spec.declare.structures.errors import (
 )
 from arkitekt_spec.declare.structures.quantities import shrink_quantity
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_spec.declare.structures.types import JSONSerializable
+from arkitekt_spec.declare.targets import SerializableDefinition, SerializablePort
+
 from arkitekt_runtime.structures.serialization.context import (
     KindTable,
     SerializationContext,
@@ -27,8 +29,6 @@ from arkitekt_runtime.structures.serialization.context import (
 )
 from arkitekt_runtime.structures.serialization.memory import shrink_memory_reference
 from arkitekt_runtime.structures.serialization.predication import predicate_port
-from arkitekt_spec.declare.targets import SerializablePort
-from arkitekt_spec.declare.structures.types import JSONSerializable
 
 
 async def _shrink(

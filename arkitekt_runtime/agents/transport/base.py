@@ -3,21 +3,20 @@
 import logging
 import warnings
 from abc import abstractmethod
+from collections.abc import AsyncIterator
 from types import TracebackType
 from typing import Self, cast
-from collections.abc import AsyncIterator
 
+from koil.composition import KoiledModel
 from pydantic import ConfigDict, PrivateAttr
 
 from arkitekt_runtime.agents.policy import ConnectionPolicy
-from arkitekt_runtime.messages import FromAgentMessage, ToAgentMessage
 from arkitekt_runtime.agents.transport.types import (
     HandshakeParams,
     HandshakeProvider,
     TransportHost,
 )
-
-from koil.composition import KoiledModel
+from arkitekt_runtime.messages import FromAgentMessage, ToAgentMessage
 
 logger = logging.getLogger(__name__)
 

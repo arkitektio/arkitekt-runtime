@@ -14,18 +14,17 @@ import time
 from collections.abc import AsyncIterator
 
 import pytest
-from koil import check_cancelled
-
-from arkitekt_runtime import messages
 from arkitekt_spec.declare.actors.policy import (
     CancelOnDisconnect,
     DisconnectPolicy,
     OnDisconnect,
 )
+from arkitekt_spec.declare.app import AppRegistry
+from koil import check_cancelled
+
+from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.agents.policy import Backoff, ConnectionPolicy
-from arkitekt_spec.declare.app import AppRegistry
-
 from arkitekt_runtime.local import MemoryAgentTransport
 
 
@@ -317,8 +316,6 @@ async def test_a_link_that_recovers_as_the_deadline_expires_does_not_kill(
     assert not cancelled.is_set(), (
         "the watchdog must re-check the link immediately before cancelling"
     )
-
-
 
 
 @pytest.mark.asyncio

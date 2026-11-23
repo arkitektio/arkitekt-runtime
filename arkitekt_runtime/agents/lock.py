@@ -31,8 +31,9 @@ Deadlock invariants
 import asyncio
 import logging
 from types import TracebackType
-from arkitekt_spec.actions import LockImplementationInput
 from typing import TYPE_CHECKING, Self
+
+from arkitekt_spec.actions import LockImplementationInput
 
 if TYPE_CHECKING:
     from arkitekt_runtime.actors.types import LockHost

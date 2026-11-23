@@ -1,7 +1,7 @@
 import pytest
-from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.structures.registry import StructureRegistry
 
+from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
 
 

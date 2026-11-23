@@ -19,17 +19,23 @@ def fresh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
 
 
 def _affinity(monkeypatch: pytest.MonkeyPatch, cpus: int) -> None:
-    monkeypatch.setattr(hardware.os, "sched_getaffinity", lambda _: set(range(cpus)), raising=False)
+    monkeypatch.setattr(
+        hardware.os, "sched_getaffinity", lambda _: set(range(cpus)), raising=False
+    )
 
 
-def test_the_cpu_count_is_the_container_limit_when_there_is_one(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_cpu_count_is_the_container_limit_when_there_is_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _affinity(monkeypatch, 32)
     (tmp_path / "cpu.max").write_text("250000 100000\n")
 
     assert hardware._cpu_count() == 3
 
 
-def test_no_cpu_limit_leaves_the_affinity(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_no_cpu_limit_leaves_the_affinity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _affinity(monkeypatch, 8)
     (tmp_path / "cpu.max").write_text("max 100000\n")
 
@@ -38,9 +44,16 @@ def test_no_cpu_limit_leaves_the_affinity(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 def test_gpus_are_listed_by_nvidia_smi(monkeypatch: pytest.MonkeyPatch) -> None:
     listed = "NVIDIA GeForce RTX 4090, 24564\nA, Strange, Name, [N/A]\n"
-    monkeypatch.setattr(hardware.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=listed))
+    monkeypatch.setattr(
+        hardware.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=listed),
+    )
 
-    assert hardware._gpus() == [AgentGpu(name="NVIDIA GeForce RTX 4090", memory_mib=24564), AgentGpu(name="A, Strange, Name", memory_mib=None)]
+    assert hardware._gpus() == [
+        AgentGpu(name="NVIDIA GeForce RTX 4090", memory_mib=24564),
+        AgentGpu(name="A, Strange, Name", memory_mib=None),
+    ]
 
 
 def test_no_working_nvidia_smi_is_no_gpus(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,6 +66,15 @@ def test_no_working_nvidia_smi_is_no_gpus(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_register_carries_it_on_the_wire() -> None:
-    message = Register(token="t", spec_version="8.0.0", hardware=AgentHardware(cpu_count=4, memory_mib=2048, gpus=[AgentGpu(name="G", memory_mib=8)]))
+    message = Register(
+        token="t",
+        spec_version="8.0.0",
+        hardware=AgentHardware(
+            cpu_count=4, memory_mib=2048, gpus=[AgentGpu(name="G", memory_mib=8)]
+        ),
+    )
 
-    assert '"hardware":{"cpu_count":4,"memory_mib":2048,"gpus":[{"name":"G","memory_mib":8}]}' in message.model_dump_json()
+    assert (
+        '"hardware":{"cpu_count":4,"memory_mib":2048,"gpus":[{"name":"G","memory_mib":8}]}'
+        in message.model_dump_json()
+    )

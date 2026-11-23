@@ -5,32 +5,33 @@ This allow the async patterns of actors to extend to the Qt world.
 """
 
 import inspect
+from collections.abc import AsyncGenerator, Callable
 from functools import partial
 from typing import (
     Any,
     get_args,
     get_origin,
 )
-from collections.abc import AsyncGenerator, Callable
-from qtpy import QtCore, QtWidgets
-from koil.qt import QtGenerator, QtFuture, qt_to_async, qt_gen_to_async_gen
-from arkitekt_runtime.actors.functional import FUNC, GEN, FunctionalActor
 
+from arkitekt_spec.actions import DefinitionInput
 from arkitekt_spec.declare.actors.actify import (
     derive_implementation_details,
     prepare_definition_from_config,
 )
-from arkitekt_spec.actions import DefinitionInput
 from arkitekt_spec.declare.actors.types import (
     ImplementationDetails,
     RegisterConfig,
 )
+from arkitekt_spec.declare.protocol.types import AnyFunction
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+from koil.qt import QtFuture, QtGenerator, qt_gen_to_async_gen, qt_to_async
+from qtpy import QtCore, QtWidgets
+
+from arkitekt_runtime.actors.functional import FUNC, GEN, FunctionalActor
 from arkitekt_runtime.actors.types import (
     ActorBuilder,
     Agent,
 )
-from arkitekt_spec.declare.protocol.types import AnyFunction
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 
 
 class QtInLoopBuilder(QtCore.QObject):
@@ -74,7 +75,9 @@ class QtInLoopBuilder(QtCore.QObject):
 
         return await self.coro.acall(*args, **kwargs)
 
-    def build(self, agent: Agent, structure_registry: StructureRegistry) -> "FunctionalActor":
+    def build(
+        self, agent: Agent, structure_registry: StructureRegistry
+    ) -> "FunctionalActor":
         """Build the actor against ``structure_registry``.
 
         The registry is not held here: the actifier returns a ``partial`` over this
@@ -124,7 +127,9 @@ class QtFutureBuilder(QtCore.QObject):
         x = await self.coro.acall(*args, **kwargs)
         return x
 
-    def build(self, agent: Agent, structure_registry: StructureRegistry) -> "FunctionalActor":
+    def build(
+        self, agent: Agent, structure_registry: StructureRegistry
+    ) -> "FunctionalActor":
         """Build the actor against ``structure_registry``.
 
         The registry is not held here: the actifier returns a ``partial`` over this
@@ -177,7 +182,9 @@ class QtGeneratorBuilder(QtCore.QObject):
         async for i in self.generator.acall(*args, **kwargs):
             yield i
 
-    def build(self, agent: Agent, structure_registry: StructureRegistry) -> "FunctionalActor":
+    def build(
+        self, agent: Agent, structure_registry: StructureRegistry
+    ) -> "FunctionalActor":
         """Build the actor against ``structure_registry``.
 
         The registry is not held here: the actifier returns a ``partial`` over this
@@ -212,7 +219,9 @@ def qtinloopactifier(
     """
     config = config or RegisterConfig()
 
-    implementation_details = derive_implementation_details(function, config, structure_registry)
+    implementation_details = derive_implementation_details(
+        function, config, structure_registry
+    )
     definition = prepare_definition_from_config(
         function, structure_registry, config, implementation_details
     )
@@ -272,7 +281,9 @@ def qtwithfutureactifier(
             "If you are using a QtFuture as the first parameter, you need to provide the return type of the future as a type hint. E.g `QtFuture[int]`"
         )
 
-    implementation_details = derive_implementation_details(function, config, structure_registry)
+    implementation_details = derive_implementation_details(
+        function, config, structure_registry
+    )
     definition = prepare_definition_from_config(
         function,
         structure_registry,
@@ -330,7 +341,9 @@ def qtwithgeneratoractifier(
             "If you are using a QtGenerator as the first parameter, you need to provide the return type of the generator as a type hint. E.g `QtGenerator[int]`"
         )
 
-    implementation_details = derive_implementation_details(function, config, structure_registry)
+    implementation_details = derive_implementation_details(
+        function, config, structure_registry
+    )
     definition = prepare_definition_from_config(
         function,
         structure_registry,

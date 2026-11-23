@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
 
 from arkitekt_runtime.state.observable import adopt, evented
 from arkitekt_runtime.structures.serialization.actor import ashrink_return
-from arkitekt_spec.declare.app import AppRegistry
 from tests.conftest import MockShelver
 
 
@@ -53,7 +53,9 @@ def adopted(state: Moves) -> tuple[Moves, Recorder, Any]:
 def shrunk(patch: Any, structures: Any) -> Any:  # noqa: ANN401
     """What the agent would send: it shrinks a patch's value by the patch's port."""
     assert patch.port is not None, f"no port for {patch.path}"
-    return asyncio.run(ashrink_return(patch.port, patch.value, structures, MockShelver()))
+    return asyncio.run(
+        ashrink_return(patch.port, patch.value, structures, MockShelver())
+    )
 
 
 def test_a_field_of_a_value_in_a_map() -> None:
@@ -130,7 +132,9 @@ def test_a_replaced_map_of_a_map() -> None:
     ],
     ids=["a map in a list", "a list in a map", "a number in a map"],
 )
-def test_maps_and_lists_nest(start: Moves, change: Any, path: str, expected: float) -> None:
+def test_maps_and_lists_nest(
+    start: Moves, change: Any, path: str, expected: float
+) -> None:
     state, recorder, structures = adopted(start)
     change(state)
     (patch,) = recorder.patches

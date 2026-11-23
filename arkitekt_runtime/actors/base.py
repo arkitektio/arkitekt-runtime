@@ -1,49 +1,49 @@
 """The base class for all actors."""
 
-from arkitekt_spec.declare.agents.dependency import dependency_to_protocol
-
 import asyncio
 import contextlib
 import logging
+import uuid
+from collections.abc import Iterable, Mapping
+from functools import partial
 from typing import (
     Any,
     ClassVar,
     Literal,
     Self,
 )
-from collections.abc import Iterable, Mapping
-import uuid
-from functools import partial
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from arkitekt_runtime.actors.interactions import InteractionsProxy
-from arkitekt_runtime.actors.dependency import AgentDependencyProxy
-from arkitekt_runtime.actors.errors import UnknownMessageError
-from arkitekt_spec.declare.actors.policy import KEEP, DisconnectPolicy
-from arkitekt_spec.declare.agents.context import PreparedContextReturns, PreparedContextVariables
-from arkitekt_spec.declare.agents.errors import StateRequirementsNotMet
-from arkitekt_spec.declare.descriptors import unmet_state
-from arkitekt_spec.declare.errors import STATE_PRECONDITION
-from arkitekt_spec.declare.actors.types import (
-    PreparedInteractionVariables,
-    PreparedInjectedVariables,
-    PreparedDependencyVariables,
-)
-from arkitekt_runtime.actors.types import Agent
-from arkitekt_spec.declare.errors import BlokRefused
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
-from arkitekt_runtime import messages
 from arkitekt_spec.actions import DefinitionInput, Execution, FitsInput
-from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
-from arkitekt_runtime.state.observable import Marks, Mutation
-from arkitekt_spec.declare.state.publish import CLEANUP
+from arkitekt_spec.declare.actors.policy import KEEP, DisconnectPolicy
 from arkitekt_spec.declare.actors.types import (
+    PreparedDependencyVariables,
+    PreparedInjectedVariables,
+    PreparedInteractionVariables,
     PreparedStateReturns,
     PreparedStateVariables,
 )
+from arkitekt_spec.declare.agents.context import (
+    PreparedContextReturns,
+    PreparedContextVariables,
+)
+from arkitekt_spec.declare.agents.dependency import dependency_to_protocol
+from arkitekt_spec.declare.agents.errors import StateRequirementsNotMet
+from arkitekt_spec.declare.descriptors import unmet_state
+from arkitekt_spec.declare.errors import STATE_PRECONDITION, BlokRefused
+from arkitekt_spec.declare.protocol.types import AnyContext, AnyState
+from arkitekt_spec.declare.state.publish import CLEANUP
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.task import Task
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
+from arkitekt_runtime import messages
+from arkitekt_runtime.actors.dependency import AgentDependencyProxy
+from arkitekt_runtime.actors.errors import UnknownMessageError
+from arkitekt_runtime.actors.interactions import InteractionsProxy
+from arkitekt_runtime.actors.types import Agent
 from arkitekt_runtime.agents.lock import LockGroup
+from arkitekt_runtime.state.observable import Marks, Mutation
+from arkitekt_runtime.task import Task
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,9 @@ class Actor(BaseModel):
             for lock in self.agent.state_required_locks(requirement.state)
         )
 
-    async def aunmet_state_requires(self, assignment: messages.Assign) -> tuple[str, ...]:
+    async def aunmet_state_requires(
+        self, assignment: messages.Assign
+    ) -> tuple[str, ...]:
         """Every ``state_requires`` of ``assignment`` the agent's state does not hold.
 
         Called with the locks taken. Empty when there is nothing to test. A workflow
@@ -162,13 +164,18 @@ class Actor(BaseModel):
         if not assignment.state_requires:
             return ()
         resume = assignment.resume
-        if resume is not None and any(effect.key == STATE_REQUIRES_KEY for effect in resume.effects):
+        if resume is not None and any(
+            effect.key == STATE_REQUIRES_KEY for effect in resume.effects
+        ):
             return ()
         states = await self.agent.aread_states(
             [requirement.state for requirement in assignment.state_requires]
         )
         unmet = unmet_state(assignment.state_requires, states)
-        if not unmet and self.execution in (Execution.WORKFLOW, Execution.WORKFLOW.value):
+        if not unmet and self.execution in (
+            Execution.WORKFLOW,
+            Execution.WORKFLOW.value,
+        ):
             await self.asend(
                 message=messages.Effect(
                     task=assignment.task,
@@ -180,7 +187,9 @@ class Actor(BaseModel):
         return unmet
 
     @contextlib.asynccontextmanager
-    async def sync_context(self: Self, task_id: str, interface: str, extra_locks: Iterable[str] = ()):
+    async def sync_context(
+        self: Self, task_id: str, interface: str, extra_locks: Iterable[str] = ()
+    ):
         """Context manager that holds the actor's locks while an assignment runs.
 
         Acquisition order is fixed (see the deadlock invariants documented in
@@ -436,29 +445,48 @@ class Actor(BaseModel):
         person's answer, or auto-mode's approval. A cancel ends the wait. A blok the server
         cannot make comes back as BLOK_REFUSED, raised here as :class:`BlokRefused`.
         """
-        future: asyncio.Future[messages.Decide] = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[messages.Decide] = (
+            asyncio.get_running_loop().create_future()
+        )
         self._hold_futures[task_id] = future
         try:
             await self.agent.asend(
                 self,
-                message=messages.Held(task=task_id, message=message, prompt=prompt, details=details, blok=blok),
+                message=messages.Held(
+                    task=task_id,
+                    message=message,
+                    prompt=prompt,
+                    details=details,
+                    blok=blok,
+                ),
             )
             decide = await future
         finally:
             self._hold_futures.pop(task_id, None)
-        return Decision(approved=decide.approved, answer=decide.answer, auto=decide.auto, values=decide.values)
+        return Decision(
+            approved=decide.approved,
+            answer=decide.answer,
+            auto=decide.auto,
+            values=decide.values,
+        )
 
-    async def ainform(self: Self, task_id: str, blok: TaskBlok, message: str | None = None) -> None:
+    async def ainform(
+        self: Self, task_id: str, blok: TaskBlok, message: str | None = None
+    ) -> None:
         """Show a person ``blok`` while ``task_id`` goes on (``task.inform``). Nothing waits:
         a refusal, should one come, is logged (:meth:`on_blok_refused`)."""
-        await self.agent.asend(self, message=messages.Inform(task=task_id, message=message, blok=blok))
+        await self.agent.asend(
+            self, message=messages.Inform(task=task_id, message=message, blok=blok)
+        )
 
     async def on_blok_refused(self: Self, refused: messages.BlokRefused) -> None:
         """A blok ``refused.task`` sent could not be made: the ask waiting on it raises
         :class:`BlokRefused`; an inform's is only logged, as nothing waits for it."""
         future = self._hold_futures.get(refused.task)
         if future is None or future.done():
-            logger.warning("The blok task %s showed was refused: %s", refused.task, refused.reason)
+            logger.warning(
+                "The blok task %s showed was refused: %s", refused.task, refused.reason
+            )
             return
         future.set_exception(BlokRefused(refused.reason, task=refused.task))
 
@@ -466,7 +494,9 @@ class Actor(BaseModel):
         """Answer the hold ``decide.task`` waits in."""
         future = self._hold_futures.get(decide.task)
         if future is None or future.done():
-            logger.warning(f"Actor {self.id} got a decision for {decide.task}, which holds for none")
+            logger.warning(
+                f"Actor {self.id} got a decision for {decide.task}, which holds for none"
+            )
             return
         future.set_result(decide)
 
@@ -824,7 +854,9 @@ class SerializingActor(Actor):
                 interactions = self.structure_registry.interactions_for(cls)
             except KeyError as e:
                 raise StateRequirementsNotMet(f"State requirements not met: {e}") from e
-            proxies[key] = InteractionsProxy(key, interactions, task=task, structure_registry=self.structure_registry)
+            proxies[key] = InteractionsProxy(
+                key, interactions, task=task, structure_registry=self.structure_registry
+            )
         return proxies
 
     async def aget_injected_locals(
@@ -858,7 +890,9 @@ class SerializingActor(Actor):
         kwargs: dict[str, Any] = {key: task for key in wanted.task_variables}
         # The agent refused to start with anything but the declared class, so the
         # instance is what the annotation promised.
-        kwargs.update({key: self.agent.app_context for key in wanted.app_context_variables})
+        kwargs.update(
+            {key: self.agent.app_context for key in wanted.app_context_variables}
+        )
         if not wanted.service_client_variables:
             return kwargs
 

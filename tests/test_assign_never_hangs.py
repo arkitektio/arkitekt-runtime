@@ -13,16 +13,14 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
+from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_spec.declare.errors import CriticalCallError
 
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_runtime.types import TaskEventKind
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.errors import CriticalCallError
 from arkitekt_runtime.calls import _astream_raw
-
 from arkitekt_runtime.local import MemoryAgentTransport
-
+from arkitekt_runtime.types import TaskEventKind
 
 # These states belong to a registry, as they would to an app. There is no
 # process-wide one to fall into.
@@ -130,8 +128,6 @@ async def test_duplicate_assign_runs_once(
     assert len(transport.of_type(messages.Completed)) == 1
 
 
-
-
 @pytest.mark.asyncio
 async def test_unknown_interface_is_reported_and_does_not_kill_the_agent(
     agent: BaseAgent, transport: MemoryAgentTransport
@@ -169,7 +165,9 @@ async def test_failure_outside_the_actors_own_error_handling_is_reported(
     await _until(
         lambda: any(c.task == "task-4" for c in transport.of_type(messages.Critical))
     )
-    critical = next(c for c in transport.of_type(messages.Critical) if c.task == "task-4")
+    critical = next(
+        c for c in transport.of_type(messages.Critical) if c.task == "task-4"
+    )
     assert "State requirements not met" in critical.error
 
 
@@ -203,7 +201,9 @@ async def test_stream_ends_when_the_task_is_cancelled_or_interrupted(
     The GraphQL caller only knew COMPLETED / FAILED / CRITICAL and hung on anything else."""
 
     async def consume() -> None:
-        async for _ in _astream_raw(postman=_ScriptedPostman(TaskEventKind.PROGRESS, kind)):  # type: ignore[arg-type]
+        async for _ in _astream_raw(
+            postman=_ScriptedPostman(TaskEventKind.PROGRESS, kind)  # type: ignore[arg-type]
+        ):
             pass
 
     with pytest.raises(CriticalCallError):
@@ -238,5 +238,7 @@ async def test_a_probe_names_itself_on_no_lock_or_shelve_frame(
     naming one: none is sent."""
     await agent.alock("stage", "p-1")
     await agent.aunlock("stage", "p-1")
-    assert not transport.of_type(messages.Lock) and not transport.of_type(messages.Unlock)
+    assert not transport.of_type(messages.Lock) and not transport.of_type(
+        messages.Unlock
+    )
     assert agent._shelve_frame("@x/y", object(), "a value", None, "p-1").task is None

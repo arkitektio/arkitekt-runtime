@@ -2,19 +2,24 @@
 
 import pytest
 from arkitekt_spec.declare.definition.define import prepare_definition
-from arkitekt_runtime.structures.serialization.postman import ashrink_args, aexpand_returns
+from arkitekt_spec.declare.structures.errors import ExpandingError, ShrinkingError
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.types import Shelver
 from arkitekt_runtime.structures.serialization.actor import expand_inputs
+from arkitekt_runtime.structures.serialization.postman import (
+    aexpand_returns,
+    ashrink_args,
+)
+
 from .funcs import (
-    plain_basic_function,
-    plain_structure_function,
     nested_structure_function,
     null_function,
+    plain_basic_function,
+    plain_structure_function,
     union_structure_function,
 )
 from .structures import SecondObject, SerializableObject
-from arkitekt_spec.declare.structures.errors import ShrinkingError, ExpandingError
-from arkitekt_runtime.actors.types import Shelver
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 
 
 @pytest.mark.shrink

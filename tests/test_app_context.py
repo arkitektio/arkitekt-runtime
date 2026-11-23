@@ -9,17 +9,17 @@ wrong thing. Hooks and actions take it by annotating a parameter with the class.
 from typing import Any
 
 import pytest
-
-from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.agents.errors import StateRequirementsNotMet
 from arkitekt_spec.declare.agents.hooks.errors import StartupHookError
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.errors import AppContextError
+
+from arkitekt_runtime import messages
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.local import MemoryAgentTransport
 from arkitekt_runtime.task import Task
 
 from .agent_helpers import run_assignment
-from arkitekt_runtime.local import MemoryAgentTransport
 
 
 class Config:
@@ -32,13 +32,23 @@ class OtherConfig:
 
 
 def _agent(registry: AppRegistry | None = None) -> BaseAgent:
-    return BaseAgent(name="ctx", transport=MemoryAgentTransport(), app_registry=registry or AppRegistry())
+    return BaseAgent(
+        name="ctx",
+        transport=MemoryAgentTransport(),
+        app_registry=registry or AppRegistry(),
+    )
 
 
 def _assign(interface: str, **args: Any) -> messages.Assign:
     return messages.Assign(
-        task=f"task-{interface}", interface=interface, args=args, implementation="impl-1",
-        action="action-1", reference="ref-1", user="user-1", org="org-1",
+        task=f"task-{interface}",
+        interface=interface,
+        args=args,
+        implementation="impl-1",
+        action="action-1",
+        reference="ref-1",
+        user="user-1",
+        org="org-1",
     )
 
 
@@ -125,7 +135,9 @@ async def test_an_action_is_handed_the_context_the_agent_started_with() -> None:
 
     agent = _agent(registry)
     await agent.astart(app_context=Config("live"))
-    assert await run_assignment(agent, _assign("scan", exposure=0.5)) == {"return0": "live@0.5"}
+    assert await run_assignment(agent, _assign("scan", exposure=0.5)) == {
+        "return0": "live@0.5"
+    }
 
     threaded = _agent(registry)
     await threaded.astart(app_context=Config("thread"))

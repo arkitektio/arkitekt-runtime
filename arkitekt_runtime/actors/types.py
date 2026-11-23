@@ -1,45 +1,31 @@
 """Types for the actors module"""
 
 import asyncio
+from collections.abc import Sequence
 from typing import (
     TYPE_CHECKING,
+    Any,
     Protocol,
     Self,
     runtime_checkable,
-    Any,
 )
-from arkitekt_spec.declare.agents.types import BoundApp
-from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
-from arkitekt_runtime import messages
+
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.actors.policy import DisconnectPolicy
-from arkitekt_runtime.postmans.types import Postman
+from arkitekt_spec.declare.agents.types import BoundApp
 from arkitekt_spec.declare.protocol.types import AnyState
-from arkitekt_spec.scalars import Identifier
 from arkitekt_spec.declare.state.publish import Patch
-from collections.abc import Sequence
+from arkitekt_spec.declare.task import AssignmentHook, AssignPrompt, Decision, TaskBlok
+from arkitekt_spec.scalars import Identifier
 
+from arkitekt_runtime import messages
+from arkitekt_runtime.postmans.types import Postman
 
 if TYPE_CHECKING:
-    from arkitekt_spec.declare.app import AppRegistry
     from arkitekt_spec.declare.agents.connection import ConnectionListener
+    from arkitekt_spec.declare.app import AppRegistry
+
     from arkitekt_runtime.agents.lock import TaskLock
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @runtime_checkable
@@ -250,7 +236,9 @@ class Actor(Protocol):
         ``blok``, and return the decision."""
         ...
 
-    async def ainform(self, task_id: str, blok: "TaskBlok", message: str | None = None) -> None:
+    async def ainform(
+        self, task_id: str, blok: "TaskBlok", message: str | None = None
+    ) -> None:
         """Show a person ``blok`` while ``task_id`` goes on."""
         ...
 
@@ -304,7 +292,3 @@ class ActorBuilder(Protocol):
         """Create the actor and return it. This method will create the actor and"""
 
         ...
-
-
-
-

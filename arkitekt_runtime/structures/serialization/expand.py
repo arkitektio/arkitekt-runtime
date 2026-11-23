@@ -8,21 +8,22 @@ handler in :data:`EXPANDERS`; container kinds recurse through
 
 import asyncio
 import datetime as dt
-from typing import Any
 from collections.abc import Sequence
-
-from arkitekt_spec.scalars import coerce_id
+from typing import Any
 
 from arkitekt_spec.actions import PortKind
-from arkitekt_spec.declare.targets import SerializableDefinition
 from arkitekt_spec.declare.structures.errors import (
-    StructureRegistryError,
     ExpandingError,
     PortExpandingError,
     StructureExpandingError,
+    StructureRegistryError,
 )
 from arkitekt_spec.declare.structures.quantities import expand_quantity
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_spec.declare.structures.types import JSONSerializable
+from arkitekt_spec.declare.targets import SerializableDefinition, SerializablePort
+from arkitekt_spec.scalars import coerce_id
+
 from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
 from arkitekt_runtime.structures.serialization.context import (
     KindTable,
@@ -32,8 +33,6 @@ from arkitekt_runtime.structures.serialization.context import (
 )
 from arkitekt_runtime.structures.serialization.memory import expand_memory_reference
 from arkitekt_runtime.structures.serialization.port_errors import to_port_error
-from arkitekt_spec.declare.targets import SerializablePort
-from arkitekt_spec.declare.structures.types import JSONSerializable
 
 
 async def _expand(
@@ -96,7 +95,9 @@ async def _union(
             f"Union '__use' index {tagged.index} is out of range for {len(port.children)} children"
         )
     return await _expand(
-        port.children[tagged.index], tagged.value, ctx.child(f"{port.key}[{tagged.index}]")
+        port.children[tagged.index],
+        tagged.value,
+        ctx.child(f"{port.key}[{tagged.index}]"),
     )
 
 

@@ -8,6 +8,18 @@ import inspect
 from functools import partial
 from typing import Any
 
+from arkitekt_spec.actions import DefinitionInput
+from arkitekt_spec.declare.actors.actify import (
+    derive_implementation_details,
+    prepare_definition_from_config,
+)
+from arkitekt_spec.declare.actors.types import (
+    ImplementationDetails,
+    RegisterConfig,
+)
+from arkitekt_spec.declare.protocol.types import AnyFunction
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+
 from arkitekt_runtime.actors.functional import (
     FUNC,
     GEN,
@@ -15,22 +27,7 @@ from arkitekt_runtime.actors.functional import (
     THREADED_GEN,
     FunctionalActor,
 )
-from arkitekt_spec.declare.protocol.types import AnyFunction
-from arkitekt_spec.declare.actors.types import (
-    ImplementationDetails,
-    RegisterConfig,
-)
 from arkitekt_runtime.actors.types import ActorBuilder
-from arkitekt_spec.actions import DefinitionInput
-from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_spec.declare.actors.actify import (
-    derive_implementation_details,
-    prepare_definition_from_config,
-)
-
-
-
-
 
 
 def reactify(
@@ -50,7 +47,9 @@ def reactify(
     """
     config = config or RegisterConfig()
 
-    implementation_details = derive_implementation_details(function, config, structure_registry)
+    implementation_details = derive_implementation_details(
+        function, config, structure_registry
+    )
     definition = prepare_definition_from_config(
         function, structure_registry, config, implementation_details
     )

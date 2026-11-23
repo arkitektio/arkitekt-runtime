@@ -6,17 +6,16 @@ taken on the producer's word.
 """
 
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Annotated
 
-from types import SimpleNamespace
-
 import pytest
-
-from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_runtime.local import LocalCallError, acall_local, local_agent
 from arkitekt_spec.actions import DescriptorOperator
 from arkitekt_spec.declare.annotations import Provides, Requires
 from arkitekt_spec.declare.app import AppRegistry
+
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.local import LocalCallError, acall_local, local_agent
 
 CHANNELS = "@test/n_channels"
 KIND = "@test/value_kind"
@@ -36,7 +35,9 @@ def describe_picture(picture: Picture) -> dict[str, int]:
 
 def _both(key: str, operator: str, value: object) -> tuple[Requires, Provides]:
     op = DescriptorOperator(operator)
-    return Requires(key=key, operator=op, value=value), Provides(key=key, operator=op, value=value)
+    return Requires(key=key, operator=op, value=value), Provides(
+        key=key, operator=op, value=value
+    )
 
 
 SingleChannel = Annotated[Picture, *_both(CHANNELS, "LTE", 1)]
@@ -79,7 +80,13 @@ async def agent() -> AsyncIterator[BaseAgent]:
     async def expand_picture(id: str) -> Picture:
         return Picture(id)
 
-    for function in (passthrough, needs_single, promises_single, promises_labels, promises_singles):
+    for function in (
+        passthrough,
+        needs_single,
+        promises_single,
+        promises_labels,
+        promises_singles,
+    ):
         registry.register(function)
     ran.clear()
     agent = local_agent(registry)
@@ -93,24 +100,38 @@ async def test_a_return_that_keeps_its_promise_goes_out(agent: BaseAgent) -> Non
     assert result.channels == 1
 
 
-async def test_a_return_that_breaks_its_promise_is_refused_before_shrinking(agent: BaseAgent) -> None:
-    with pytest.raises(LocalCallError, match=r"not what the port provides.*@test/n_channels LTE 1 \(actual 3\)"):
+async def test_a_return_that_breaks_its_promise_is_refused_before_shrinking(
+    agent: BaseAgent,
+) -> None:
+    with pytest.raises(
+        LocalCallError,
+        match=r"not what the port provides.*@test/n_channels LTE 1 \(actual 3\)",
+    ):
         await acall_local(agent, "promises_single", 3)
 
 
-async def test_an_argument_that_breaks_the_requirement_never_reaches_the_body(agent: BaseAgent) -> None:
-    with pytest.raises(LocalCallError, match=r"not what the port requires.*@test/n_channels LTE 1 \(actual 2\)"):
+async def test_an_argument_that_breaks_the_requirement_never_reaches_the_body(
+    agent: BaseAgent,
+) -> None:
+    with pytest.raises(
+        LocalCallError,
+        match=r"not what the port requires.*@test/n_channels LTE 1 \(actual 2\)",
+    ):
         await acall_local(agent, "needs_single", Picture("2"))
     assert ran == []
     assert await acall_local(agent, "needs_single", Picture("1")) == 1
 
 
-async def test_a_key_the_structure_does_not_compute_is_taken_on_trust(agent: BaseAgent) -> None:
+async def test_a_key_the_structure_does_not_compute_is_taken_on_trust(
+    agent: BaseAgent,
+) -> None:
     assert (await acall_local(agent, "promises_labels", 4)).channels == 4
 
 
 async def test_each_item_of_a_list_is_tested(agent: BaseAgent) -> None:
-    assert [p.channels for p in await acall_local(agent, "promises_singles", [1, 0])] == [1, 0]
+    assert [
+        p.channels for p in await acall_local(agent, "promises_singles", [1, 0])
+    ] == [1, 0]
     with pytest.raises(LocalCallError, match=r"@test/n_channels LTE 1 \(actual 5\)"):
         await acall_local(agent, "promises_singles", [1, 5])
 
@@ -120,18 +141,31 @@ async def test_a_port_without_constraints_carries_anything(agent: BaseAgent) -> 
 
 
 def test_an_object_that_does_not_fit_the_agent_is_refused(monkeypatch) -> None:
-    from arkitekt_runtime.structures.serialization import actor
     from arkitekt_spec.actions import FitsInput
     from arkitekt_spec.declare.blok.parser import parse_fits
 
+    from arkitekt_runtime.structures.serialization import actor
+
     fstruct = SimpleNamespace(describe=lambda value: {"@mikro/size": value})
     registry = SimpleNamespace(get_fullfilled_structure=lambda identifier: fstruct)
-    definition = SimpleNamespace(args=[SimpleNamespace(key="image", identifier="@mikro/arraylens")])
-    fit = FitsInput(port="image", call=parse_fits("@mikro/size < agent.memory_mib"), source="the formula")
-    monkeypatch.setattr(actor, "detect_hardware", lambda: SimpleNamespace(model_dump=lambda: {"memory_mib": 10}))
+    definition = SimpleNamespace(
+        args=[SimpleNamespace(key="image", identifier="@mikro/arraylens")]
+    )
+    fit = FitsInput(
+        port="image",
+        call=parse_fits("@mikro/size < agent.memory_mib"),
+        source="the formula",
+    )
+    monkeypatch.setattr(
+        actor,
+        "detect_hardware",
+        lambda: SimpleNamespace(model_dump=lambda: {"memory_mib": 10}),
+    )
 
     actor._check_fits(definition, {"image": 5}, registry, [fit])
-    with pytest.raises(actor.ExpandingError, match="does not fit this agent: the formula"):
+    with pytest.raises(
+        actor.ExpandingError, match="does not fit this agent: the formula"
+    ):
         actor._check_fits(definition, {"image": 50}, registry, [fit])
 
     # What this agent cannot tell is not tested.

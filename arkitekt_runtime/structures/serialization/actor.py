@@ -11,14 +11,10 @@ The ``*_actor_*`` names are aliases of the shared implementations in
 
 import asyncio
 import datetime as dt
+from collections.abc import Sequence
 from enum import Enum
 from typing import Any, cast
-from collections.abc import Sequence
 
-from arkitekt_spec.scalars import coerce_id
-
-from arkitekt_runtime.actors.types import Shelver
-from arkitekt_runtime.agents.hardware import detect_hardware
 from arkitekt_spec.actions import (
     ArgPortInput,
     DefinitionInput,
@@ -26,19 +22,27 @@ from arkitekt_spec.actions import (
     PortKind,
     ReturnPortInput,
 )
-from arkitekt_runtime.constants import UNSET
-from arkitekt_runtime.state.observable import unwrapped
-from arkitekt_spec.scalars import validate_identifier
+from arkitekt_spec.declare.descriptors import (
+    fits_can_be_tested,
+    fits_holds,
+    unfulfilled,
+)
 from arkitekt_spec.declare.structures.errors import (
-    StructureRegistryError,
     ExpandingError,
     ShrinkingError,
     StructureExpandingError,
+    StructureRegistryError,
 )
 from arkitekt_spec.declare.structures.quantities import expand_quantity, shrink_quantity
-from arkitekt_spec.declare.descriptors import fits_can_be_tested, fits_holds, unfulfilled
 from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_spec.declare.structures.types import FullFilledStructure
+from arkitekt_spec.declare.structures.types import FullFilledStructure, JSONSerializable
+from arkitekt_spec.declare.targets import SerializablePort
+from arkitekt_spec.scalars import coerce_id, validate_identifier
+
+from arkitekt_runtime.actors.types import Shelver
+from arkitekt_runtime.agents.hardware import detect_hardware
+from arkitekt_runtime.constants import UNSET
+from arkitekt_runtime.state.observable import unwrapped
 from arkitekt_runtime.structures.serialization.batching import ExpandBatcher
 from arkitekt_runtime.structures.serialization.context import (
     KindTable,
@@ -55,9 +59,7 @@ from arkitekt_runtime.structures.serialization.port_errors import (
     to_shrink_port_error,
 )
 from arkitekt_runtime.structures.serialization.predication import predicate_port
-from arkitekt_spec.declare.targets import SerializablePort
 from arkitekt_runtime.structures.serialization.shrink import ashrink_arg, ashrink_args
-from arkitekt_spec.declare.structures.types import JSONSerializable
 
 # --------------------------------------------------------------------------- #
 # Expanding incoming arguments
@@ -133,7 +135,9 @@ async def _expand_union(
             f"Union '__use' index {tagged.index} is out of range for {len(port.children)} children.",
         )
     return await _expand(
-        port.children[tagged.index], tagged.value, ctx.child(f"{port.key}[{tagged.index}]")
+        port.children[tagged.index],
+        tagged.value,
+        ctx.child(f"{port.key}[{tagged.index}]"),
     )
 
 
@@ -343,7 +347,10 @@ async def _expand_structure(
     mismatch = _descriptor_mismatch(fstruc, expanded, getattr(port, "requires", None))
     if mismatch is not None:
         raise _expand_error(
-            port, value, ctx, f"This {port.identifier} is not what the port requires: {mismatch}"
+            port,
+            value,
+            ctx,
+            f"This {port.identifier} is not what the port requires: {mismatch}",
         )
     return expanded
 
@@ -512,8 +519,12 @@ def _check_fits(
         if describe is None:
             continue
         descriptors = describe(value)
-        if fits_can_be_tested(fit.call, descriptors, hardware) and not fits_holds(fit.call, descriptors, hardware):
-            raise ExpandingError(f"This {port.identifier} does not fit this agent: {fit.source}")
+        if fits_can_be_tested(fit.call, descriptors, hardware) and not fits_holds(
+            fit.call, descriptors, hardware
+        ):
+            raise ExpandingError(
+                f"This {port.identifier} does not fit this agent: {fit.source}"
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -733,7 +744,10 @@ async def _shrink_structure(
     mismatch = _descriptor_mismatch(fstruc, value, getattr(port, "provides", None))
     if mismatch is not None:
         raise _shrink_error(
-            port, value, ctx, f"This {port.identifier} is not what the port provides: {mismatch}"
+            port,
+            value,
+            ctx,
+            f"This {port.identifier} is not what the port provides: {mismatch}",
         )
     try:
         shrunk = await fstruc.shrink(value)

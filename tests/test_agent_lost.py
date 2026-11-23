@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from arkitekt_spec.declare.errors import AgentLost
 
 from arkitekt_runtime.calls import _astream_raw
 from arkitekt_runtime.types import TaskEventKind
-from arkitekt_spec.declare.errors import AgentLost
 
 
 @dataclass
@@ -42,18 +42,29 @@ async def test_a_lost_task_raises_agent_lost_with_what_is_known() -> None:
         Event(
             TaskEventKind.LOST,
             message="Its agent died while it ran.",
-            value={"started": True, "last_progress": 40, "effects": "NONE", "reason": "Its agent died while it ran."},
+            value={
+                "started": True,
+                "last_progress": 40,
+                "effects": "NONE",
+                "reason": "Its agent died while it ran.",
+            },
         )
     )
 
     with pytest.raises(AgentLost, match="Its agent died") as lost:
         await _drain(postman)
 
-    assert (lost.value.started, lost.value.last_progress, lost.value.effects) == (True, 40, "NONE")
+    assert (lost.value.started, lost.value.last_progress, lost.value.effects) == (
+        True,
+        40,
+        "NONE",
+    )
 
 
 async def test_a_task_that_never_started_says_so() -> None:
-    postman = OnePostman(Event(TaskEventKind.LOST, value={"started": False, "reason": "never picked up"}))
+    postman = OnePostman(
+        Event(TaskEventKind.LOST, value={"started": False, "reason": "never picked up"})
+    )
 
     with pytest.raises(AgentLost) as lost:
         await _drain(postman)
@@ -62,7 +73,10 @@ async def test_a_task_that_never_started_says_so() -> None:
 
 
 async def test_what_arrives_before_the_loss_is_still_yielded_first() -> None:
-    postman = OnePostman(Event(TaskEventKind.YIELD, returns={"x": 1}), Event(TaskEventKind.LOST, value={}))
+    postman = OnePostman(
+        Event(TaskEventKind.YIELD, returns={"x": 1}),
+        Event(TaskEventKind.LOST, value={}),
+    )
     received = []
 
     with pytest.raises(AgentLost):

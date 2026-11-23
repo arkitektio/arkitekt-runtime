@@ -1,11 +1,14 @@
 """Test the reactify function which converts a function or generator into an actor definition."""
 
 from collections.abc import Callable, Generator
-from arkitekt_runtime.actors.actify import reactify
-from arkitekt_spec.declare.actors.types import RegisterConfig
-from arkitekt_spec.actions import ActionKind
-from arkitekt_spec.declare.structures.registry import StructureRegistry
+
 import pytest
+from arkitekt_spec.actions import ActionKind
+from arkitekt_spec.declare.actors.types import RegisterConfig
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.actify import reactify
+
 from .funcs import (
     nested_basic_function,
     nested_structure_asyncgenerator,

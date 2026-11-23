@@ -5,16 +5,20 @@ from typing import (
     TYPE_CHECKING,
     Any,
 )
-from arkitekt_spec.declare.agents.types import BoundApp
-from koil.bridge import run_threaded
-from arkitekt_spec.declare.agents.hooks.errors import ShutdownHookError, StartupHookError
-from arkitekt_spec.declare.agents.hooks.registry import (
-    StartupHookReturns,
-)
+
 from arkitekt_spec.declare.agents.hooks.declare import (
     LifecycleWithVariables,
     StartupWithVariables,
 )
+from arkitekt_spec.declare.agents.hooks.errors import (
+    ShutdownHookError,
+    StartupHookError,
+)
+from arkitekt_spec.declare.agents.hooks.registry import (
+    StartupHookReturns,
+)
+from arkitekt_spec.declare.agents.types import BoundApp
+from koil.bridge import run_threaded
 
 if TYPE_CHECKING:
     from arkitekt_spec.declare.structures.registry import StructureRegistry
@@ -22,6 +26,7 @@ from arkitekt_spec.declare.protocol.types import (
     AsyncStartupFunction,
     ThreadedStartupFunction,
 )
+
 from arkitekt_runtime.calls import ensure_return_as_tuple
 
 
@@ -29,7 +34,9 @@ class WrappedStartupHook(StartupWithVariables):
     """Startup hook that runs in the event loop"""
 
     def __init__(
-        self, func: AsyncStartupFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: AsyncStartupFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the startup hook
 
@@ -60,7 +67,9 @@ class WrappedStartupHook(StartupWithVariables):
         return _split_returns(self, ensure_return_as_tuple(parsed_returns))
 
 
-def _split_returns(hook: StartupWithVariables, returns: tuple[Any, ...]) -> StartupHookReturns:
+def _split_returns(
+    hook: StartupWithVariables, returns: tuple[Any, ...]
+) -> StartupHookReturns:
     """A startup hook's returns, by the state or context each slot is annotated with.
 
     A context slot may be ``None``: the hook does not provide that context (a device
@@ -89,7 +98,9 @@ class ThreadedStartupHook(StartupWithVariables):
     """Startup hook that runs in the event loop"""
 
     def __init__(
-        self, func: ThreadedStartupFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: ThreadedStartupFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the startup hook
 
@@ -130,7 +141,9 @@ class WrappedLifecycleHook(LifecycleWithVariables):
     """
 
     def __init__(
-        self, func: Any, structure_registry: "StructureRegistry | None" = None  # noqa: ANN401
+        self,
+        func: Any,  # noqa: ANN401
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         super().__init__(func, structure_registry)
         self._task: asyncio.Task[None] | None = None
@@ -165,7 +178,9 @@ class WrappedLifecycleHook(LifecycleWithVariables):
         self._stop.set()
         await task
 
-    async def _adrive(self, kwargs: dict[str, Any], entered: "asyncio.Future[Any]") -> None:
+    async def _adrive(
+        self, kwargs: dict[str, Any], entered: "asyncio.Future[Any]"
+    ) -> None:
         name = self.func.__name__
         generator = self.func(**kwargs)
         try:
@@ -173,7 +188,9 @@ class WrappedLifecycleHook(LifecycleWithVariables):
                 yielded = await anext(generator)
             except StopAsyncIteration:
                 if not entered.done():
-                    entered.set_exception(StartupHookError(f"Lifecycle hook {name} did not yield"))
+                    entered.set_exception(
+                        StartupHookError(f"Lifecycle hook {name} did not yield")
+                    )
                 return
             except asyncio.CancelledError:
                 entered.cancel()

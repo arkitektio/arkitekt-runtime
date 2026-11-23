@@ -56,12 +56,20 @@ async def test_what_follows_the_yield_runs_in_the_entering_task_after_the_shutdo
     mock_agent._ran_startup_hooks = True
     await mock_agent.arun_shutdown_hooks()
 
-    assert events == ["enter first", "enter second", "shutdown", "exit second", "exit first"]
+    assert events == [
+        "enter first",
+        "enter second",
+        "shutdown",
+        "exit second",
+        "exit first",
+    ]
     assert tasks[0] is tasks[1], "left in the task that entered it"
 
 
 @pytest.mark.asyncio
-async def test_a_start_that_fails_leaves_what_was_entered(mock_agent: BaseAgent) -> None:
+async def test_a_start_that_fails_leaves_what_was_entered(
+    mock_agent: BaseAgent,
+) -> None:
     registry = mock_agent.app_registry
     events: list[str] = []
 

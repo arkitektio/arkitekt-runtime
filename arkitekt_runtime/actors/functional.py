@@ -1,19 +1,24 @@
 """Functional actors for rekuest"""
 
 import logging
-from typing import Any, Self
 from collections.abc import AsyncGenerator, Callable
-from koil.bridge import iterate_threaded, run_threaded  # type: ignore
-from arkitekt_runtime.actors.base import SerializingActor
-from arkitekt_runtime.messages import Assign
-from arkitekt_runtime.structures.serialization.actor import expand_inputs, shrink_outputs
-from arkitekt_runtime.actors.helper import AssignmentHelper
-from arkitekt_runtime.task import Task
+from typing import Any, Self
+
 from arkitekt_spec.declare.errors import STATE_PRECONDITION, NonDeterministicWorkflow
-from arkitekt_runtime.postmans.types import ReplaysCalls
 from arkitekt_spec.declare.structures.errors import SerializationError
+from koil.bridge import iterate_threaded, run_threaded  # type: ignore
+
 from arkitekt_runtime import messages
+from arkitekt_runtime.actors.base import SerializingActor
 from arkitekt_runtime.actors.debug import capture_to_list
+from arkitekt_runtime.actors.helper import AssignmentHelper
+from arkitekt_runtime.messages import Assign
+from arkitekt_runtime.postmans.types import ReplaysCalls
+from arkitekt_runtime.structures.serialization.actor import (
+    expand_inputs,
+    shrink_outputs,
+)
+from arkitekt_runtime.task import Task
 from arkitekt_runtime.task_scope import enter_task_scopes
 
 logger = logging.getLogger(__name__)
@@ -169,7 +174,11 @@ class FunctionalActor(SerializingActor):
 
                 # A resumed run that ends without a call its earlier run made took another path.
                 postman = self.agent.caller_postman
-                left = postman.unclaimed_calls(assignment.task) if isinstance(postman, ReplaysCalls) else []
+                left = (
+                    postman.unclaimed_calls(assignment.task)
+                    if isinstance(postman, ReplaysCalls)
+                    else []
+                )
                 if left:
                     raise NonDeterministicWorkflow(
                         f"Task {assignment.task}: the resumed run ended without making {left}, "

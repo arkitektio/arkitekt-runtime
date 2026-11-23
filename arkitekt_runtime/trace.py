@@ -36,10 +36,14 @@ class Traced(Protocol):
 @contextmanager
 def trace_scope(task: Traced) -> Iterator[None]:
     """Run the block inside the task's trace, as a span of this agent."""
-    parent = propagate.extract({TRACEPARENT: task.traceparent}) if task.traceparent else None
+    parent = (
+        propagate.extract({TRACEPARENT: task.traceparent}) if task.traceparent else None
+    )
     entered = context.attach(parent) if parent is not None else None
     try:
-        with trace.get_tracer("arkitekt_runtime").start_as_current_span("task", attributes={"rekuest.task": task.id}):
+        with trace.get_tracer("arkitekt_runtime").start_as_current_span(
+            "task", attributes={"rekuest.task": task.id}
+        ):
             yield
     finally:
         if entered is not None:

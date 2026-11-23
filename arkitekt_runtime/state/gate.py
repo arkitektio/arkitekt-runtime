@@ -65,7 +65,9 @@ class TaskGate:
     def held(self, what: str = "task") -> Iterator[None]:
         """Hold a pass for the block; raise :class:`TaskClosedError` if the gate is closed."""
         if not self.enter():
-            raise TaskClosedError(f"The {what} has already ended; nothing more is recorded for it")
+            raise TaskClosedError(
+                f"The {what} has already ended; nothing more is recorded for it"
+            )
         try:
             yield
         finally:

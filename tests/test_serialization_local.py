@@ -1,13 +1,13 @@
 """Test the serialization logic with in memory structures"""
 
 import pytest
-
-from arkitekt_runtime.actors.types import Shelver
 from arkitekt_spec.declare.definition.define import prepare_definition
 from arkitekt_spec.declare.structures.registry import StructureRegistry
+
+from arkitekt_runtime.actors.types import Shelver
 from arkitekt_runtime.structures.serialization.actor import shrink_outputs
 
-from .funcs import localized_structure_function, LocalizedStructure
+from .funcs import LocalizedStructure, localized_structure_function
 
 
 @pytest.mark.expand

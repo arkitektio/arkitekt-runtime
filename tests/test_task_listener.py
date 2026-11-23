@@ -10,13 +10,12 @@ import threading
 from collections.abc import AsyncIterator
 
 import pytest
-
-from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.agents.connection import TaskEvent, TaskEventKind
 from arkitekt_spec.declare.app import AppRegistry
 from arkitekt_spec.declare.task import Task
 
+from arkitekt_runtime import messages
+from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
 
 

@@ -5,11 +5,16 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Annotated, NamedTuple
 
 import pytest
-
-from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_runtime.local import acall_local, aiterate_local, aiterate_local_raw, local_agent
 from arkitekt_spec.declare.annotations import Key
 from arkitekt_spec.declare.app import AppRegistry
+
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.local import (
+    acall_local,
+    aiterate_local,
+    aiterate_local_raw,
+    local_agent,
+)
 
 
 class Measured(NamedTuple):
@@ -50,18 +55,34 @@ async def agent() -> AsyncIterator[BaseAgent]:
     await agent.atear_down()
 
 
-async def test_a_returned_named_tuple_fills_the_ports_its_fields_name(agent: BaseAgent) -> None:
-    assert [returns async for returns in aiterate_local_raw(agent, "measure", {"values": [1, 2, 3]})] == [{"count": 3, "mean": 2.0}]
+async def test_a_returned_named_tuple_fills_the_ports_its_fields_name(
+    agent: BaseAgent,
+) -> None:
+    assert [
+        returns
+        async for returns in aiterate_local_raw(agent, "measure", {"values": [1, 2, 3]})
+    ] == [{"count": 3, "mean": 2.0}]
     assert await acall_local(agent, "measure", [1, 2, 3]) == (3, 2.0)
 
 
 @pytest.mark.parametrize("interface", ["measure_each", "ameasure_each"])
-async def test_each_yielded_named_tuple_fills_the_ports_its_fields_name(agent: BaseAgent, interface: str) -> None:
-    raw = [returns async for returns in aiterate_local_raw(agent, interface, {"values": [2, 4]})]
+async def test_each_yielded_named_tuple_fills_the_ports_its_fields_name(
+    agent: BaseAgent, interface: str
+) -> None:
+    raw = [
+        returns
+        async for returns in aiterate_local_raw(agent, interface, {"values": [2, 4]})
+    ]
     assert raw == [{"count": 1, "mean": 2.0}, {"count": 2, "mean": 3.0}]
-    assert [value async for value in aiterate_local(agent, interface, [2, 4])] == [(1, 2.0), (2, 3.0)]
+    assert [value async for value in aiterate_local(agent, interface, [2, 4])] == [
+        (1, 2.0),
+        (2, 3.0),
+    ]
 
 
 async def test_a_keyed_return_travels_under_its_key(agent: BaseAgent) -> None:
-    assert [returns async for returns in aiterate_local_raw(agent, "total", {"values": [1, 2]})] == [{"total": 3}]
+    assert [
+        returns
+        async for returns in aiterate_local_raw(agent, "total", {"values": [1, 2]})
+    ] == [{"total": 3}]
     assert await acall_local(agent, "total", [1, 2]) == 3

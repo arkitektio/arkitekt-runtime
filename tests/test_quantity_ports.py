@@ -14,30 +14,30 @@ pytest.importorskip("kanne")
 
 from typing import Annotated  # noqa: E402
 
-from kanne import ElectricPotential, Duration, Capacitance  # noqa: E402
-
 from arkitekt_spec.actions import (
     ArgPortInput,
     PortKind,
 )
+from arkitekt_spec.declare.annotations import Units
 from arkitekt_spec.declare.definition.define import (  # noqa: E402
-    prepare_definition,
     convert_object_to_argport,
     convert_object_to_returnport,
+    prepare_definition,
 )
-from arkitekt_spec.declare.annotations import Units
+from arkitekt_spec.declare.structures.quantities import (  # noqa: E402
+    dimension_of,
+    expand_quantity,
+    is_pint_quantity,
+    matches_dimension,
+    proposed_units_of,
+    resolve_quantity_type,
+)
 from arkitekt_spec.declare.structures.registry import StructureRegistry  # noqa: E402
+from kanne import Capacitance, Duration, ElectricPotential  # noqa: E402
+
 from arkitekt_runtime.structures.serialization.actor import (  # noqa: E402
     expand_inputs,
     shrink_outputs,
-)
-from arkitekt_spec.declare.structures.quantities import (  # noqa: E402
-    is_pint_quantity,
-    dimension_of,
-    proposed_units_of,
-    resolve_quantity_type,
-    matches_dimension,
-    expand_quantity,
 )
 
 VOLT_DIMENSION = "[mass] * [length] ** 2 / [time] ** 3 / [current]"
@@ -75,7 +75,9 @@ def test_kanne_return_becomes_quantity_port(registry: StructureRegistry) -> None
     assert tuple(port.proposed_units) == Duration.proposed_units
 
 
-def test_with_units_annotation_overrides_proposed_units(registry: StructureRegistry) -> None:
+def test_with_units_annotation_overrides_proposed_units(
+    registry: StructureRegistry,
+) -> None:
     port = convert_object_to_argport(
         Annotated[Capacitance, Units("pF", "nF")], "cm", registry
     )
@@ -241,5 +243,7 @@ def test_a_quantity_is_expanded_by_a_process_that_never_imported_kanne() -> None
         "assert matches_dimension('5 mV', str(value.quantity.dimensionality)) is False\n"
         "assert matches_dimension('3 min', str(value.quantity.dimensionality)) is True\n"
     )
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr

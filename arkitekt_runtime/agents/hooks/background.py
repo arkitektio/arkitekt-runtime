@@ -5,16 +5,16 @@ from typing import (
     Any,
 )
 
-from arkitekt_spec.declare.agents.types import BoundApp
-from koil.bridge import run_threaded
-from arkitekt_spec.declare.state.publish import StateHolder
 from arkitekt_spec.declare.agents.hooks.declare import BackgroundWithVariables
+from arkitekt_spec.declare.agents.types import BoundApp
+from arkitekt_spec.declare.state.publish import StateHolder
+from koil.bridge import run_threaded
 
 if TYPE_CHECKING:
     from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_spec.declare.protocol.types import (
-    ThreadedBackgroundFunction,
     AsyncBackgroundFunction,
+    ThreadedBackgroundFunction,
 )
 
 
@@ -22,7 +22,9 @@ class WrappedBackgroundTask(BackgroundWithVariables):
     """Background task that runs in the event loop"""
 
     def __init__(
-        self, func: AsyncBackgroundFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: AsyncBackgroundFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the background task
         Args:
@@ -47,7 +49,9 @@ class WrappedThreadedBackgroundTask(BackgroundWithVariables):
     """Background task that runs in a thread pool"""
 
     def __init__(
-        self, func: ThreadedBackgroundFunction, structure_registry: "StructureRegistry | None" = None
+        self,
+        func: ThreadedBackgroundFunction,
+        structure_registry: "StructureRegistry | None" = None,
     ) -> None:
         """Initialize the background task
         Args:

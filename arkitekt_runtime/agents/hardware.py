@@ -14,7 +14,11 @@ from pathlib import Path
 from arkitekt_runtime.messages import AgentGpu, AgentHardware
 
 _CGROUP = Path("/sys/fs/cgroup")
-_NVIDIA_SMI = ("nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits")
+_NVIDIA_SMI = (
+    "nvidia-smi",
+    "--query-gpu=name,memory.total",
+    "--format=csv,noheader,nounits",
+)
 _NVIDIA_SMI_TIMEOUT = 2.0
 _MIB = 1024 * 1024
 
@@ -35,7 +39,9 @@ def _cpu_count() -> int | None:
     if cpus is None or limit is None:
         return cpus
     quota, _, period = limit.partition(" ")
-    if not quota.isdigit() or not period.isdigit() or int(period) == 0:  # "max 100000": no limit
+    if (
+        not quota.isdigit() or not period.isdigit() or int(period) == 0
+    ):  # "max 100000": no limit
         return cpus
     return min(cpus, max(1, math.ceil(int(quota) / int(period))))
 
@@ -53,14 +59,25 @@ def _memory_mib() -> int | None:
 
 def _gpus() -> list[AgentGpu]:
     try:
-        listed = subprocess.run(_NVIDIA_SMI, capture_output=True, check=True, text=True, timeout=_NVIDIA_SMI_TIMEOUT).stdout
+        listed = subprocess.run(
+            _NVIDIA_SMI,
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=_NVIDIA_SMI_TIMEOUT,
+        ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     gpus = []
     for line in listed.splitlines():
         name, _, memory = line.rpartition(",")
         if name:
-            gpus.append(AgentGpu(name=name.strip(), memory_mib=int(memory) if memory.strip().isdigit() else None))
+            gpus.append(
+                AgentGpu(
+                    name=name.strip(),
+                    memory_mib=int(memory) if memory.strip().isdigit() else None,
+                )
+            )
     return gpus
 
 

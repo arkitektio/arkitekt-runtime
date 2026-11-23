@@ -12,11 +12,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from arkitekt_spec.actions import Execution, PortKind
 
 from arkitekt_runtime import messages
-from arkitekt_spec.actions import Execution, PortKind
-from arkitekt_runtime.types import TaskEventKind
 from arkitekt_runtime.task import Task
+from arkitekt_runtime.types import TaskEventKind
 
 
 class RecordingPostman:
@@ -131,8 +131,7 @@ async def test_a_fetched_action_is_reduced_to_its_id() -> None:
     postman = RecordingPostman()
 
     result = [
-        item
-        async for item in _task(postman).aiterate_raw(action=_Target("action-1"))
+        item async for item in _task(postman).aiterate_raw(action=_Target("action-1"))
     ]
     assert result == [("ok",)]
 
@@ -194,15 +193,21 @@ async def test_a_call_without_prompt_or_policy_still_reaches_an_older_postman() 
 
 @pytest.mark.asyncio
 async def test_a_prompt_and_a_policy_reach_the_postman_when_given() -> None:
-    from arkitekt_runtime.types import TaskPolicy
     from arkitekt_spec.declare.task import AssignPrompt
+
+    from arkitekt_runtime.types import TaskPolicy
 
     postman = RecordingPostman()
     prompt = AssignPrompt(title="Run it")
-    await _stream(postman, args={}, action_id="a1", prompt=prompt, policy=TaskPolicy.AUTO)
+    await _stream(
+        postman, args={}, action_id="a1", prompt=prompt, policy=TaskPolicy.AUTO
+    )
     await _stream(postman, args={}, action_id="a1")
 
-    assert (postman.calls[0]["prompt"], postman.calls[0]["policy"]) == (prompt, TaskPolicy.AUTO)
+    assert (postman.calls[0]["prompt"], postman.calls[0]["policy"]) == (
+        prompt,
+        TaskPolicy.AUTO,
+    )
     assert "prompt" not in postman.calls[1] and "policy" not in postman.calls[1]
 
 
@@ -215,7 +220,12 @@ def test_an_assign_input_without_a_policy_dumps_as_it_did_before_policies() -> N
         return rest
 
     assign_before_policies(**AssignInput(args={}, capture=False).model_dump())
-    assert AssignInput(args={}, capture=False, policy=TaskPolicy.AUTO).model_dump()["policy"] == "AUTO"
+    assert (
+        AssignInput(args={}, capture=False, policy=TaskPolicy.AUTO).model_dump()[
+            "policy"
+        ]
+        == "AUTO"
+    )
 
 
 def test_a_decide_input_takes_the_answer_values_and_what_to_remember() -> None:
@@ -227,8 +237,15 @@ def test_a_decide_input_takes_the_answer_values_and_what_to_remember() -> None:
     plain = DecideInput(task="7", approved=True)
     assert plain.model_dump(exclude_none=True) == {"task": "7", "approved": True}
 
-    remembered = DecideInput(task="7", approved=True, values={"slot": 2}, remember=HoldRemember.ASKER)
-    assert remembered.model_dump(exclude_none=True) == {"task": "7", "approved": True, "values": {"slot": 2}, "remember": "ASKER"}
+    remembered = DecideInput(
+        task="7", approved=True, values={"slot": 2}, remember=HoldRemember.ASKER
+    )
+    assert remembered.model_dump(exclude_none=True) == {
+        "task": "7",
+        "approved": True,
+        "values": {"slot": 2},
+        "remember": "ASKER",
+    }
     assert [member.value for member in HoldRemember] == ["RUN", "ASKER", "ALWAYS"]
 
     with pytest.raises(ValidationError):
@@ -245,7 +262,9 @@ class _Implementation:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_a_chosen_implementation_goes_alone_never_with_its_action(stream: bool) -> None:
+async def test_a_chosen_implementation_goes_alone_never_with_its_action(
+    stream: bool,
+) -> None:
     """The server takes an action first and runs any free agent of it: naming both would
     drop the implementation chosen (a caller's own agent, found with ``callerOf``)."""
     postman = RecordingPostman()
@@ -278,7 +297,14 @@ async def test_an_agent_goes_beside_the_action_as_its_id() -> None:
     is reduced to its id like any target, and a call naming none sends none."""
     postman = RecordingPostman()
     task = _task(postman)
-    port = SimpleNamespace(key="agent", kind=PortKind.STRING, nullable=False, identifier=None, children=None, choices=None)
+    port = SimpleNamespace(
+        key="agent",
+        kind=PortKind.STRING,
+        nullable=False,
+        identifier=None,
+        children=None,
+        choices=None,
+    )
     action = SimpleNamespace(id="action-1", args=(port,), returns=())
 
     await task.acall(action, agent="its-own-argument", on_agent=_Target("agent-1"))
@@ -286,7 +312,11 @@ async def test_an_agent_goes_beside_the_action_as_its_id() -> None:
     await task.acall(action, agent="its-own-argument")
 
     named, raw, free = postman.calls
-    assert (named["action"], named["implementation"], named["agent"]) == ("action-1", None, "agent-1")
+    assert (named["action"], named["implementation"], named["agent"]) == (
+        "action-1",
+        None,
+        "agent-1",
+    )
     assert (raw["action"], raw["agent"]) == ("action-1", "agent-2")
     # A port that happens to be called `agent` is filled by its keyword, and names no agent.
     assert (named["args"], free["args"]) == ({"agent": "its-own-argument"},) * 2

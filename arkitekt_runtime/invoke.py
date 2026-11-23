@@ -21,16 +21,25 @@ was a deferred error. Every entry point is private: what is public is the two cl
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast, runtime_checkable
 
-from arkitekt_runtime.calls import _astream_raw, _resolve_parent, release_call, reserve_call
+from arkitekt_spec.declare.structures.registry import StructureRegistry
+from arkitekt_spec.declare.structures.types import JSONSerializable
+from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
+from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
+from arkitekt_spec.scalars import ID, coerce_id
+
+from arkitekt_runtime.calls import (
+    _astream_raw,
+    _resolve_parent,
+    release_call,
+    reserve_call,
+)
 from arkitekt_runtime.messages import Assign
 from arkitekt_runtime.postmans.types import Postman
+from arkitekt_runtime.structures.serialization.postman import (
+    aexpand_returns,
+    ashrink_args,
+)
 from arkitekt_runtime.types import TaskPolicy
-from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
-from arkitekt_spec.declare.structures.registry import StructureRegistry
-from arkitekt_runtime.structures.serialization.postman import aexpand_returns, ashrink_args
-from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
-from arkitekt_spec.declare.structures.types import JSONSerializable
-from arkitekt_spec.scalars import ID, coerce_id
 
 __all__ = ["AgentTarget"]
 
@@ -237,7 +246,9 @@ async def _acall(
         CriticalCallError: If the backend reports a critical task error.
     """
     action, implementation_id = _resolve_target(target)
-    agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
+    agent_id = _agent_id(
+        on_agent, implementation_id
+    )  # refused before anything is shrunk
 
     ticket = reserve_call(postman, parent)
     try:
@@ -298,7 +309,9 @@ async def _aiterate(
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator action's yields, each one expanded (``on_agent`` as in :func:`_acall`)."""
     action, implementation_id = _resolve_target(target)
-    agent_id = _agent_id(on_agent, implementation_id)  # refused before anything is shrunk
+    agent_id = _agent_id(
+        on_agent, implementation_id
+    )  # refused before anything is shrunk
 
     ticket = reserve_call(postman, parent)
     try:

@@ -9,9 +9,6 @@ key) or dynamic (a blok made at run time, which only an action declaring ``dynam
 import asyncio
 from typing import Annotated, Any, NamedTuple, Protocol
 
-from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent
-from arkitekt_runtime.local import MemoryAgentTransport
 from arkitekt_spec.actions import (
     BlokDemoInput,
     PortKind,
@@ -19,9 +16,13 @@ from arkitekt_spec.actions import (
 )
 from arkitekt_spec.declare.annotations import Key
 from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.interactions import ask, inform
 from arkitekt_spec.declare.errors import BlokRefused, DismissedError, NotDeclaredError
+from arkitekt_spec.declare.interactions import ask, inform
 from arkitekt_spec.declare.task import Task, TaskBlok
+
+from arkitekt_runtime import messages
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.local import MemoryAgentTransport
 
 from .test_workflow_replay import _agent, _assign, _drive, _returned
 
@@ -33,14 +34,25 @@ PICKER = """<Blok kind="task" context="panel">
   </Card>
 </Blok>"""
 
-IMAGES = [{"__identifier": "@mikro/image", "object": "7"}, {"__identifier": "@mikro/image", "object": "8"}]
-IMAGE = [ReturnPortInput(key="image", kind=PortKind.STRUCTURE, identifier="@mikro/image", nullable=False)]
+IMAGES = [
+    {"__identifier": "@mikro/image", "object": "7"},
+    {"__identifier": "@mikro/image", "object": "8"},
+]
+IMAGE = [
+    ReturnPortInput(
+        key="image", kind=PortKind.STRUCTURE, identifier="@mikro/image", nullable=False
+    )
+]
 
 
 def picks(task: Task) -> str:
     """Asks which image."""
     try:
-        values = task.dynamic_ask(TaskBlok(source=PICKER, name="Which image?"), args={"images": IMAGES}, returns=IMAGE)
+        values = task.dynamic_ask(
+            TaskBlok(source=PICKER, name="Which image?"),
+            args={"images": IMAGES},
+            returns=IMAGE,
+        )
     except BlokRefused as refused:
         return f"refused:{refused.reason}"
     except DismissedError:
@@ -77,12 +89,16 @@ class Asks(Protocol):
         """Pick one."""
         ...
 
-    @ask('<Blok kind="task" context="panel"><Button label=\"Ok\" onClick={task.answer(values: {ok: true})} /></Blok>')
+    @ask(
+        '<Blok kind="task" context="panel"><Button label="Ok" onClick={task.answer(values: {ok: true})} /></Blok>'
+    )
     def ok(self) -> Annotated[bool, Key("ok")]:
         """Go on?"""
         ...
 
-    @inform('<Blok kind="task" context="panel"><Card><CardTitle text={args.done} /></Card></Blok>')
+    @inform(
+        '<Blok kind="task" context="panel"><Card><CardTitle text={args.done} /></Card></Blok>'
+    )
     def progress(self, done: int) -> None:
         """Halfway."""
         ...
@@ -110,7 +126,13 @@ def _declared_agent() -> tuple[BaseAgent, MemoryAgentTransport]:
 def shows_dynamically(task: Task) -> str:
     """Shows a blok made now and goes on."""
     try:
-        task.dynamic_inform(TaskBlok(source='<Blok kind="task" context="panel"><Text text={args.done} /></Blok>', name="Halfway"), args={"done": 5})
+        task.dynamic_inform(
+            TaskBlok(
+                source='<Blok kind="task" context="panel"><Text text={args.done} /></Blok>',
+                name="Halfway",
+            ),
+            args={"done": 5},
+        )
     except NotDeclaredError:
         return "not declared"
     return "went on"
@@ -133,7 +155,9 @@ def _informing_agent(dynamic: bool) -> tuple[BaseAgent, MemoryAgentTransport]:
     return agent, transport
 
 
-async def _until(agent: BaseAgent, transport: MemoryAgentTransport, interface: str, kind: type) -> tuple:
+async def _until(
+    agent: BaseAgent, transport: MemoryAgentTransport, interface: str, kind: type
+) -> tuple:
     transport.feed(_assign(interface))
     loop = _drive(agent)
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
@@ -150,15 +174,27 @@ async def test_an_ask_holds_on_its_blok_and_returns_the_answer() -> None:
     agent, transport = _dynamic_agent(picks)
     loop, held = await _until(agent, transport, "picks", messages.Held)
     assert held.message == "Which image?"
-    assert held.blok == TaskBlok(source=PICKER, name="Which image?", args={"images": IMAGES}, returns=IMAGE)
+    assert held.blok == TaskBlok(
+        source=PICKER, name="Which image?", args={"images": IMAGES}, returns=IMAGE
+    )
 
-    transport.feed(messages.Decide(task="42", approved=True, values={"image": IMAGES[1]}))
+    transport.feed(
+        messages.Decide(task="42", approved=True, values={"image": IMAGES[1]})
+    )
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     assert await _returned(transport) == f"answered:{IMAGES[1]}"
     # Recorded like a hold, with what was answered: a resumed run gets it back.
     assert [(e.key, e.value) for e in transport.of_type(messages.Effect)] == [
-        ("HOLD:1", {"approved": True, "answer": None, "auto": False, "values": {"image": IMAGES[1]}})
+        (
+            "HOLD:1",
+            {
+                "approved": True,
+                "answer": None,
+                "auto": False,
+                "values": {"image": IMAGES[1]},
+            },
+        )
     ]
 
 
@@ -187,10 +223,16 @@ async def test_a_declared_ask_holds_by_key_and_answers_typed() -> None:
     agent, transport = _declared_agent()
     loop, held = await _until(agent, transport, "confirms", messages.Held)
     # Named by its key on the action, its args shrunk; the docstring is the message.
-    assert (held.message, held.blok.key, held.blok.source) == ("Pick one.", "asks.pick", None)
+    assert (held.message, held.blok.key, held.blok.source) == (
+        "Pick one.",
+        "asks.pick",
+        None,
+    )
     assert (held.blok.args or {})["question"] == "Which?"
 
-    transport.feed(messages.Decide(task="42", approved=True, values={"name": "this", "count": 3}))
+    transport.feed(
+        messages.Decide(task="42", approved=True, values={"name": "this", "count": 3})
+    )
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def second() -> object:
@@ -218,18 +260,28 @@ def test_a_declared_ask_registers_with_its_action() -> None:
     implementation = registry.implementations["confirms"]
 
     assert implementation.definition.args == ()
-    assert [(ask.key, ask.description) for ask in implementation.asks or ()] == [("asks.ok", "Go on?"), ("asks.pick", "Pick one.")]
-    assert [(inform.key, inform.description) for inform in implementation.informs or ()] == [("asks.progress", "Halfway.")]
+    assert [(ask.key, ask.description) for ask in implementation.asks or ()] == [
+        ("asks.ok", "Go on?"),
+        ("asks.pick", "Pick one."),
+    ]
+    assert [
+        (inform.key, inform.description) for inform in implementation.informs or ()
+    ] == [("asks.progress", "Halfway.")]
     pick = next(ask for ask in implementation.asks or () if ask.key == "asks.pick")
     assert [port.key for port in pick.args] == ["question", "error"]
-    assert [(port.key, port.kind) for port in pick.returns] == [("name", "STRING"), ("count", "INT")]
+    assert [(port.key, port.kind) for port in pick.returns] == [
+        ("name", "STRING"),
+        ("count", "INT"),
+    ]
 
 
 async def test_a_refused_blok_is_raised_at_the_ask() -> None:
     agent, transport = _dynamic_agent(picks)
     loop, _ = await _until(agent, transport, "picks", messages.Held)
 
-    transport.feed(messages.BlokRefused(task="42", reason="component 'Knob' is not registered"))
+    transport.feed(
+        messages.BlokRefused(task="42", reason="component 'Knob' is not registered")
+    )
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     assert await _returned(transport) == "refused:component 'Knob' is not registered"
@@ -238,14 +290,21 @@ async def test_a_refused_blok_is_raised_at_the_ask() -> None:
 async def test_a_declared_inform_shows_by_key_and_the_task_goes_on() -> None:
     agent, transport = _informing_agent(dynamic=False)
     _, inform = await _until(agent, transport, "shows", messages.Inform)
-    assert (inform.message, inform.blok) == ("Halfway.", TaskBlok(key="asks.progress", args={"done": 5}))
+    assert (inform.message, inform.blok) == (
+        "Halfway.",
+        TaskBlok(key="asks.progress", args={"done": 5}),
+    )
     assert await _returned(transport) == "went on"
 
 
 async def test_a_dynamic_inform_shows_its_blok() -> None:
     agent, transport = _informing_agent(dynamic=True)
     _, inform = await _until(agent, transport, "shows_dynamically", messages.Inform)
-    assert (inform.message, inform.blok.source, inform.blok.args) == ("Halfway", '<Blok kind="task" context="panel"><Text text={args.done} /></Blok>', {"done": 5})
+    assert (inform.message, inform.blok.source, inform.blok.args) == (
+        "Halfway",
+        '<Blok kind="task" context="panel"><Text text={args.done} /></Blok>',
+        {"done": 5},
+    )
     assert await _returned(transport) == "went on"
 
 
@@ -265,15 +324,29 @@ def test_a_task_blok_travels_under_its_own_names() -> None:
     source = (
         '<Blok kind="task" context="panel"><local name="note" default="" persist />'
         '<query name="positions" service="mikro" document="query Positions { positions { id } }" more="positions" />'
-        '<Card><Input bind={note} /></Card></Blok>'
+        "<Card><Input bind={note} /></Card></Blok>"
     )
-    blok = TaskBlok(source=source, vocab=2, catalog="https://arkitekt.live/catalogs/orkestrator/v1", demo=BlokDemoInput(args={"images": IMAGES}))
+    blok = TaskBlok(
+        source=source,
+        vocab=2,
+        catalog="https://arkitekt.live/catalogs/orkestrator/v1",
+        demo=BlokDemoInput(args={"images": IMAGES}),
+    )
     inform = messages.Inform(task="42", message="Pick one", blok=blok)
 
     wire = inform.model_dump(mode="json")["blok"]
 
-    assert (wire["vocab"], wire["catalog"], wire["source"]) == (2, "https://arkitekt.live/catalogs/orkestrator/v1", source)
+    assert (wire["vocab"], wire["catalog"], wire["source"]) == (
+        2,
+        "https://arkitekt.live/catalogs/orkestrator/v1",
+        source,
+    )
     assert wire["demo"]["args"] == {"images": IMAGES}
     assert not {"locals", "queries", "subscriptions"} & set(wire)
     assert messages.Inform.model_validate(inform.model_dump(mode="json")).blok == blok
-    assert messages.Held.model_validate(messages.Held(task="42", blok=blok).model_dump(mode="json")).blok == blok
+    assert (
+        messages.Held.model_validate(
+            messages.Held(task="42", blok=blok).model_dump(mode="json")
+        ).blok
+        == blok
+    )

@@ -7,14 +7,13 @@ Runs a bare BaseAgent through the core handshake (``Register`` answered by ``Ini
 import asyncio
 
 import pytest
-
-from arkitekt_runtime import messages
-from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_spec.declare.agents.connection import ConnectionListener, ConnectionState
-from arkitekt_runtime.agents.transport.types import HandshakeParams
 from arkitekt_spec.declare.agents.errors import AgentException
 from arkitekt_spec.declare.app import AppRegistry
 
+from arkitekt_runtime import messages
+from arkitekt_runtime.agents.base import BaseAgent
+from arkitekt_runtime.agents.transport.types import HandshakeParams
 from arkitekt_runtime.local import MemoryAgentTransport
 
 
@@ -44,12 +43,17 @@ async def _until(predicate, timeout: float = 2.0) -> None:  # noqa: ANN001
 
 async def _connected(transport: RecordingTransport) -> BaseAgent:
     """An agent through ``aconnect``: the backend acknowledged what ``Register`` declared."""
-    agent = BaseAgent(transport=transport, app_registry=AppRegistry(), name="lifecycle-test")
+    agent = BaseAgent(
+        transport=transport, app_registry=AppRegistry(), name="lifecycle-test"
+    )
     connecting = asyncio.create_task(agent.aconnect(timeout=2.0))
     await _until(lambda: transport.handshakes)
-    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    transport.feed(
+        messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+    )
     await connecting
     return agent
+
 
 @pytest.mark.asyncio
 async def test_collect_of_an_unknown_drawer_keeps_the_loop_alive() -> None:
@@ -102,8 +106,6 @@ async def test_missing_drawer_is_a_clear_error() -> None:
     await agent.atear_down()
 
 
-
-
 @pytest.mark.asyncio
 async def test_a_stream_that_ends_tears_the_agent_down() -> None:
     transport = RecordingTransport()
@@ -149,7 +151,9 @@ async def _listening(
     )
     connecting = asyncio.create_task(agent.aconnect(timeout=2.0))
     await _until(lambda: transport.handshakes)
-    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    transport.feed(
+        messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+    )
     await connecting
     return agent
 
@@ -172,7 +176,9 @@ async def test_the_listener_hears_the_registration_and_every_drop_and_return() -
     await transport.restore_link()
     assert heard == [ConnectionState.REGISTERED, ConnectionState.DISCONNECTED]
 
-    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    transport.feed(
+        messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+    )
     await _until(lambda: len(heard) == 3)
     assert heard[-1] is ConnectionState.REGISTERED
     await agent.atear_down()
@@ -207,13 +213,17 @@ class CountingAgent(BaseAgent):
 async def test_a_stopped_run_is_torn_down_once() -> None:
     """Stopping a run reaches teardown from the loop and from leaving the agent."""
     transport = RecordingTransport()
-    agent = CountingAgent(transport=transport, app_registry=AppRegistry(), name="lifecycle-test")
+    agent = CountingAgent(
+        transport=transport, app_registry=AppRegistry(), name="lifecycle-test"
+    )
 
     async with agent:
         providing = asyncio.create_task(agent.aprovide())
         await _until(lambda: transport.handshakes)
         transport.feed(
-            messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+            messages.Init(
+                agent="agent-1", hash=transport.handshakes[0].declaration.hash
+            )
         )
         await _until(lambda: agent.running)
         providing.cancel()
@@ -228,10 +238,14 @@ async def test_a_stopped_run_is_torn_down_once() -> None:
 @pytest.mark.asyncio
 async def test_connecting_again_makes_the_agent_tear_down_again() -> None:
     transport = RecordingTransport()
-    agent = CountingAgent(transport=transport, app_registry=AppRegistry(), name="lifecycle-test")
+    agent = CountingAgent(
+        transport=transport, app_registry=AppRegistry(), name="lifecycle-test"
+    )
     connecting = asyncio.create_task(agent.aconnect(timeout=2.0))
     await _until(lambda: transport.handshakes)
-    transport.feed(messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash))
+    transport.feed(
+        messages.Init(agent="agent-1", hash=transport.handshakes[0].declaration.hash)
+    )
     await connecting
 
     await agent.atear_down()

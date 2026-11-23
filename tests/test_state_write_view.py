@@ -8,14 +8,16 @@ import dataclasses
 import gc
 import threading
 
-
 from arkitekt_spec.actions import StateDefinitionInput
+
 from arkitekt_runtime.state.observable import (
     EventedDict,
     Mutation,
     StateConfig,
     adopt,
     make_evented,
+)
+from arkitekt_runtime.state.observable import (
     config_of as state_config,
 )
 from arkitekt_runtime.state.write import write_view
@@ -37,7 +39,9 @@ class Recorder:
 
     def publish_update(self, interface: str, patches: list) -> None:  # type: ignore[type-arg]
         self.updates.append(len(patches))
-        self.patches.extend((patch.op, patch.path, patch.correlation_id) for patch in patches)
+        self.patches.extend(
+            (patch.op, patch.path, patch.correlation_id) for patch in patches
+        )
 
 
 def board() -> Board:
@@ -113,7 +117,9 @@ def test_two_tasks_views_of_one_state_stay_apart() -> None:
         for _ in range(50):
             view.items.append(n)
 
-    threads = [threading.Thread(target=write, args=(v, n)) for v, n in ((one, 1), (two, 2))]
+    threads = [
+        threading.Thread(target=write, args=(v, n)) for v, n in ((one, 1), (two, 2))
+    ]
     for t in threads:
         t.start()
     for t in threads:
@@ -162,7 +168,9 @@ def test_the_instance_a_startup_hook_returned_is_the_published_state() -> None:
     state = make_evented(returned, config_of(), "")
     recorder = Recorder()
     adopt(state, recorder)
-    assert state is returned, "adopted in place: the host's reference stays the live one"
+    assert state is returned, (
+        "adopted in place: the host's reference stays the live one"
+    )
 
     def from_the_hosts_thread() -> None:
         returned.count = 5

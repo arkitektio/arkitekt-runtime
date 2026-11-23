@@ -13,16 +13,27 @@ the caller stream carries the ``…Event`` suffix (``Pause`` cmd vs ``Paused`` r
 ``PausedEvent`` stream).
 """
 
-from typing import Any, ClassVar, Literal, Union, get_args
-from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
-from enum import Enum
-from pydantic import Field
 import uuid
-from arkitekt_spec.declare.task import AssignPrompt, StateRequirement, TaskBlok
+from enum import Enum
+from typing import Any, ClassVar, Literal, Union, get_args
 
+from arkitekt_spec.declare.task import AssignPrompt, StateRequirement, TaskBlok
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 JSONSerializable = (
-    str | int | float | bool | None | dict[str, "JSONSerializable"] | list["JSONSerializable"]
+    str
+    | int
+    | float
+    | bool
+    | None
+    | dict[str, "JSONSerializable"]
+    | list["JSONSerializable"]
 )
 
 
@@ -282,12 +293,17 @@ class Assign(Command):
         description="The arguments that was sendend"
     )
     message: str | None = None
-    user: str = Field(..., description="Who caused this hop: the human for a top-level task, the delegating agent's user for a child")
+    user: str = Field(
+        ...,
+        description="Who caused this hop: the human for a top-level task, the delegating agent's user for a child",
+    )
     assigner: str | None = Field(
         default=None,
         description="The human at the root of the task tree, who assigned it (the provenance `rcb`): the same for every task it delegated to. None from a server that does not send it.",
     )
-    org: str = Field(description="The organization the task runs in, `<iss>#<org>`: unique across issuers")
+    org: str = Field(
+        description="The organization the task runs in, `<iss>#<org>`: unique across issuers"
+    )
     action: str = Field(description="The action of this task")
     implementation: str = Field(
         description="The implementation of this task (the id of the implementation)"
@@ -629,7 +645,11 @@ class StatePatch(JournaledMessage):
 
     type: Literal[FromAgentMessageType.STATE_PATCH] = FromAgentMessageType.STATE_PATCH
     # A patch that says nothing of itself is the frame it always was.
-    left_out_unset: ClassVar[tuple[str, ...]] = (*JOURNAL_STAMP_FIELDS, "lifecycle", "qualifiers")
+    left_out_unset: ClassVar[tuple[str, ...]] = (
+        *JOURNAL_STAMP_FIELDS,
+        "lifecycle",
+        "qualifiers",
+    )
     session_id: str = Field(
         description="The session id of the agent (generated on a restart of the agent)"
     )
@@ -675,10 +695,21 @@ class StateUpdate(JournaledMessage):
     """
 
     type: Literal[FromAgentMessageType.STATE_UPDATE] = FromAgentMessageType.STATE_UPDATE
-    left_out_unset: ClassVar[tuple[str, ...]] = (*JOURNAL_STAMP_FIELDS, "task", "lifecycle", "qualifiers")
-    state: str = Field(description="The state that changed, by the name the agent declares it under.")
-    global_rev: int = Field(description="The agent's state revision once this update is applied.")
-    ops: list[StateOp] = Field(description="What the update does, as RFC 6902 operations, applied in order.")
+    left_out_unset: ClassVar[tuple[str, ...]] = (
+        *JOURNAL_STAMP_FIELDS,
+        "task",
+        "lifecycle",
+        "qualifiers",
+    )
+    state: str = Field(
+        description="The state that changed, by the name the agent declares it under."
+    )
+    global_rev: int = Field(
+        description="The agent's state revision once this update is applied."
+    )
+    ops: list[StateOp] = Field(
+        description="What the update does, as RFC 6902 operations, applied in order."
+    )
     task: str | None = Field(
         default=None,
         description="The task that made the update, if one did.",
@@ -766,10 +797,19 @@ class Journal(BaseModel):
     run must make them again before it makes any other call.
     """
 
-    last_step: int = Field(default=0, description="The last step the task took; new reports continue after it.")
+    last_step: int = Field(
+        default=0,
+        description="The last step the task took; new reports continue after it.",
+    )
     effects: list[RecordedEffect] = Field(default_factory=list)
-    calls: list[str] = Field(default_factory=list, description="The call keys of the children it has, in the order of their steps.")
-    code_changed: bool = Field(default=False, description="Whether the workflow's code differs from the code this run started on. Information for the error of a run that takes another path; it does not stop the resume.")
+    calls: list[str] = Field(
+        default_factory=list,
+        description="The call keys of the children it has, in the order of their steps.",
+    )
+    code_changed: bool = Field(
+        default=False,
+        description="Whether the workflow's code differs from the code this run started on. Information for the error of a run that takes another path; it does not stop the resume.",
+    )
 
 
 class Effect(FromAgentEvent):
@@ -829,22 +869,33 @@ class Inquire(Message):
 
     type: Literal[ToAgentMessageType.INQUIRE] = ToAgentMessageType.INQUIRE
     task: str
-    request: str | None = Field(default=None, description="Says which question an answer belongs to.")
+    request: str | None = Field(
+        default=None, description="Says which question an answer belongs to."
+    )
 
 
 class InquiryAnswer(Message):
     """Agent → backend: what this agent knows of the task it was asked about."""
 
-    type: Literal[FromAgentMessageType.INQUIRY_ANSWER] = FromAgentMessageType.INQUIRY_ANSWER
+    type: Literal[FromAgentMessageType.INQUIRY_ANSWER] = (
+        FromAgentMessageType.INQUIRY_ANSWER
+    )
     task: str
     status: TaskStatus
     request: str | None = None
-    step: int | None = Field(default=None, description="The last step the task reported.")
-    reported_at: float | None = Field(
-        default=None, description="When the task last reported anything, in seconds since the epoch."
+    step: int | None = Field(
+        default=None, description="The last step the task reported."
     )
-    progress: int | None = Field(default=None, description="What the task last said of its progress.")
-    message: str | None = Field(default=None, description="The message of its last progress or log.")
+    reported_at: float | None = Field(
+        default=None,
+        description="When the task last reported anything, in seconds since the epoch.",
+    )
+    progress: int | None = Field(
+        default=None, description="What the task last said of its progress."
+    )
+    message: str | None = Field(
+        default=None, description="The message of its last progress or log."
+    )
 
     @model_serializer(mode="wrap")
     def _drop_unset(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
@@ -864,7 +915,9 @@ class InquireRequest(Message):
     longer knows it, stays with whoever asks.
     """
 
-    type: Literal[FromAgentMessageType.INQUIRE_REQUEST] = FromAgentMessageType.INQUIRE_REQUEST
+    type: Literal[FromAgentMessageType.INQUIRE_REQUEST] = (
+        FromAgentMessageType.INQUIRE_REQUEST
+    )
     task: str
 
 
@@ -872,7 +925,9 @@ class InquireResponse(Message):
     """Backend → caller: what the task's agent says of it, or, where the agent was not asked
     (it is away, or has not acknowledged the assign yet), what the backend knows."""
 
-    type: Literal[ToAgentMessageType.INQUIRE_RESPONSE] = ToAgentMessageType.INQUIRE_RESPONSE
+    type: Literal[ToAgentMessageType.INQUIRE_RESPONSE] = (
+        ToAgentMessageType.INQUIRE_RESPONSE
+    )
     request: str
     task: str
     status: TaskStatus | None = Field(
@@ -880,13 +935,24 @@ class InquireResponse(Message):
         description="What the agent said; ENDED for a task the backend already closed. None where the agent was not asked or did not answer.",
     )
     asked: bool = Field(default=False, description="Whether the agent was asked.")
-    detail: str | None = Field(default=None, description="Why the agent was not asked, or why there is no answer.")
-    step: int | None = Field(default=None, description="The last step the task reported, as its agent has it.")
-    reported_at: float | None = Field(
-        default=None, description="When the task last reported anything, as its agent has it (seconds since the epoch)."
+    detail: str | None = Field(
+        default=None,
+        description="Why the agent was not asked, or why there is no answer.",
     )
-    progress: int | None = Field(default=None, description="What the task last said of its progress.")
-    message: str | None = Field(default=None, description="The message of its last progress or log.")
+    step: int | None = Field(
+        default=None,
+        description="The last step the task reported, as its agent has it.",
+    )
+    reported_at: float | None = Field(
+        default=None,
+        description="When the task last reported anything, as its agent has it (seconds since the epoch).",
+    )
+    progress: int | None = Field(
+        default=None, description="What the task last said of its progress."
+    )
+    message: str | None = Field(
+        default=None, description="The message of its last progress or log."
+    )
     error: str | None = None
 
 
@@ -1075,9 +1141,7 @@ class AssignRequest(JournaledMessage):
     args: dict[str, ShallowJSONSerializable] = Field(
         default_factory=dict, description="The args of the task (ports → values)."
     )
-    action: str | None = Field(
-        default=None, description="The action ID to assign to."
-    )
+    action: str | None = Field(default=None, description="The action ID to assign to.")
     action_hash: str | None = Field(
         default=None, description="The action hash to assign to."
     )
@@ -1152,7 +1216,9 @@ class StateRevisionRequest(Message):
     calls changed the guarded ``paths`` since, or the state was set up again.
     """
 
-    type: Literal[FromAgentMessageType.STATE_REVISION_REQUEST] = FromAgentMessageType.STATE_REVISION_REQUEST
+    type: Literal[FromAgentMessageType.STATE_REVISION_REQUEST] = (
+        FromAgentMessageType.STATE_REVISION_REQUEST
+    )
     parent: str
     dependency: str
     state: str
@@ -1163,7 +1229,9 @@ class StateRevisionRequest(Message):
 class StateRevisionResponse(Message):
     """The answer to a ``StateRevisionRequest``."""
 
-    type: Literal[ToAgentMessageType.STATE_REVISION_RESPONSE] = ToAgentMessageType.STATE_REVISION_RESPONSE
+    type: Literal[ToAgentMessageType.STATE_REVISION_RESPONSE] = (
+        ToAgentMessageType.STATE_REVISION_RESPONSE
+    )
     request: str
     revision: dict[str, Any] | None = None
     changed: bool | None = None
@@ -1332,8 +1400,12 @@ class JournalAck(Message):
     """
 
     type: Literal[ToAgentMessageType.JOURNAL_ACK] = ToAgentMessageType.JOURNAL_ACK
-    journal_session: str = Field(description="The journal session the position counts in.")
-    through: int = Field(description="Every position up to and including this one is persisted.")
+    journal_session: str = Field(
+        description="The journal session the position counts in."
+    )
+    through: int = Field(
+        description="Every position up to and including this one is persisted."
+    )
 
 
 class JournalNack(Message):
@@ -1342,7 +1414,9 @@ class JournalNack(Message):
     frame it says so with a ``JournalSkip``."""
 
     type: Literal[ToAgentMessageType.JOURNAL_NACK] = ToAgentMessageType.JOURNAL_NACK
-    journal_session: str = Field(description="The journal session the position counts in.")
+    journal_session: str = Field(
+        description="The journal session the position counts in."
+    )
     expected: int = Field(description="The position the backend takes next.")
 
 
@@ -1351,7 +1425,9 @@ class CommandAck(Message):
     backend forgets them."""
 
     type: Literal[FromAgentMessageType.COMMAND_ACK] = FromAgentMessageType.COMMAND_ACK
-    through: int = Field(description="Every command up to and including this position is handled.")
+    through: int = Field(
+        description="Every command up to and including this position is handled."
+    )
 
 
 class JournalSkip(Message):

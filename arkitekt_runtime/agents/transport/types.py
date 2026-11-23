@@ -12,15 +12,20 @@ This module is the canonical statement of that contract.
 inherit to get the fields and default behaviour; the two must stay in step.
 """
 
+from collections.abc import AsyncIterator
 from types import TracebackType
 from typing import Protocol, runtime_checkable
-from collections.abc import AsyncIterator
 
 from arkitekt_spec.base import current_spec_version
 from pydantic import BaseModel, ConfigDict, Field
 
 from arkitekt_runtime.agents.policy import ConnectionPolicy
-from arkitekt_runtime.messages import AgentDeclaration, AgentHardware, FromAgentMessage, ToAgentMessage
+from arkitekt_runtime.messages import (
+    AgentDeclaration,
+    AgentHardware,
+    FromAgentMessage,
+    ToAgentMessage,
+)
 
 
 class HandshakeParams(BaseModel):
