@@ -80,7 +80,7 @@ async def test_a_start_that_fails_leaves_what_was_entered(
         events.append("exit")
 
     @registry.startup
-    async def fails():  # noqa: ANN202
+    async def fails() -> None:
         raise RuntimeError("no hardware")
 
     mock_agent.collect_from_registry()

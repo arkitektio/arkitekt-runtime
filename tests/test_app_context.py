@@ -86,7 +86,7 @@ async def test_a_startup_hook_gets_the_declared_kind_or_nothing_runs() -> None:
     seen: list[str] = []
 
     @registry.startup
-    async def boot(config: Config):  # noqa: ANN202
+    async def boot(config: Config) -> None:
         """Boot."""
         seen.append(config.label)
 
