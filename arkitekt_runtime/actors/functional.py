@@ -61,11 +61,13 @@ class FunctionalActor(SerializingActor):
             f"task={assignment.task})"
         )
 
+        # Progress 0, saying nothing: a message here is the runtime's, not the
+        # action's, and the server keeps the latest message as the task's own
+        # (a finished task read "Queued for running" when its body said nothing).
         await self.asend(
             message=messages.Progress(
                 task=assignment.task,
                 progress=0,
-                message="Queued for running",
             )
         )
 
