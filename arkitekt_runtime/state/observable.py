@@ -3,7 +3,16 @@ import dataclasses
 import functools
 import threading
 from collections.abc import Callable, Iterable, Iterator
-from typing import TYPE_CHECKING, Any, Generic, SupportsIndex, TypeVar, cast, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    SupportsIndex,
+    TypeVar,
+    cast,
+    overload,
+)
 
 if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
@@ -264,8 +273,8 @@ def _make_patch(
     *,
     op: str,
     path: str,
-    value: Any,
-    old_value: Any,
+    value: object,
+    old_value: object,
     port: ReturnPortInput | None,
 ) -> Patch:
     """Create a patch carrying the already resolved schema port."""
@@ -298,8 +307,17 @@ def _one_update(method: Callable[..., Any]) -> Callable[..., Any]:
 #: mapping keyed by anything else cannot be described as a patch path in the first place.
 K = TypeVar("K", bound="str | int")
 V = TypeVar("V")
+_D = TypeVar("_D")
 #: The fallback a caller hands to `pop`, which need not be one of the mapping's own values.
 D = TypeVar("D")
+
+
+class _EventedInstance(Protocol):
+    """A dataclass instance make_evented swizzled: where its patches go."""
+
+    _event_config: StateConfig
+    _event_path: str
+    _event_port: ReturnPortInput | None
 
 
 class EventedDict(dict[K, V], Generic[K, V]):
@@ -317,7 +335,7 @@ class EventedDict(dict[K, V], Generic[K, V]):
         config: StateConfig,
         path: str,
         port: ReturnPortInput | None,
-    ):
+    ) -> None:
         super().__init__(data)
         self._config = config
         self._path = path
@@ -423,13 +441,21 @@ class EventedDict(dict[K, V], Generic[K, V]):
         for key in keys:
             del self[key]
 
-    def setdefault(self, key: Any, default: Any = None) -> Any:
+    @overload
+    def setdefault(
+        self: "EventedDict[K, _D | None]", key: K, default: None = None
+    ) -> _D | None: ...
+
+    @overload
+    def setdefault(self, key: K, default: V) -> V: ...
+
+    def setdefault(self, key: K, default: object = None) -> object:
         """Insert key with a value of default if key is not in the dictionary.
 
         Emits an 'add' patch only if the key was not present.
         """
         if key not in self:
-            self[key] = default
+            self[key] = cast(V, default)  # dict.setdefault stores None too
         return self[key]
 
     @_one_update
@@ -459,6 +485,7 @@ class EventedDict(dict[K, V], Generic[K, V]):
 # --- JSON Patch Compliant EventedList (RFC 6902) ---
 
 T = TypeVar("T")
+S = TypeVar("S")
 
 
 class EventedList(list[T], Generic[T]):
@@ -479,7 +506,7 @@ class EventedList(list[T], Generic[T]):
         config: StateConfig,
         path: str,
         port: ReturnPortInput | None,
-    ):
+    ) -> None:
         super().__init__(iterable)
         self._config = config
         self._path = path
@@ -518,7 +545,7 @@ class EventedList(list[T], Generic[T]):
                         f"attempt to assign sequence of size {len(new_values)} "
                         f"to extended slice of size {len(indices)}"
                     )
-                for idx, item in zip(indices, new_values):
+                for idx, item in zip(indices, new_values, strict=True):
                     self[idx] = item
                 return
             for idx in reversed(indices):
@@ -762,11 +789,11 @@ class EventedList(list[T], Generic[T]):
 
 
 def make_evented(
-    obj: Any,
+    obj: S,
     config: StateConfig,
     path: str = "",
     port: ReturnPortInput | None = None,
-) -> Any:
+) -> S:
     """
     Recursively converts Dataclasses, Dicts, and Lists into event-emitting objects.
     """
@@ -787,7 +814,8 @@ def make_evented(
                 port=_resolve_child_port(config, port, k),
             )
 
-        return EventedDict(wrapped_data, config, path, port)
+        # An evented dict is a dict of the same items: still what came in.
+        return cast(S, EventedDict(wrapped_data, config, path, port))
 
     # CASE B: List
     if isinstance(obj, list):
@@ -800,7 +828,8 @@ def make_evented(
             )
             for i, item in enumerate(obj)
         ]
-        return EventedList(wrapped_items, config, path, port)
+        # An evented list is a list of the same items: still what came in.
+        return cast(S, EventedList(wrapped_items, config, path, port))
 
     # CASE C: Dataclass
     if dataclasses.is_dataclass(obj):
@@ -825,9 +854,9 @@ def make_evented(
             return obj
 
         # 3. Create the interceptor hook
-        def setattr_hook(self, name, value):
+        def setattr_hook(self: _EventedInstance, name: str, value: object) -> None:
             if name.startswith("_"):
-                super(EventedClass, self).__setattr__(name, value)
+                super(EventedClass, self).__setattr__(name, value)  # pyright: ignore[reportArgumentType] -- self is an instance of the class type() makes below
                 return
 
             old_value = getattr(self, name, None)
@@ -848,7 +877,7 @@ def make_evented(
                     port=current_port,
                 )
 
-                super(EventedClass, self).__setattr__(name, value)
+                super(EventedClass, self).__setattr__(name, value)  # pyright: ignore[reportArgumentType] -- self is an instance of the class type() makes below
 
                 # Publish the patch
                 _publish_patch(

@@ -27,7 +27,7 @@ class RecordingPostman:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    async def aassign(self, **kwargs: Any) -> AsyncGenerator[Any, None]:  # noqa: ANN401
+    async def aassign(self, **kwargs: Any) -> AsyncGenerator[Any, None]:
         self.calls.append(kwargs)
         yield _Event(TaskEventKind.YIELD, returns=("ok",))
         yield _Event(TaskEventKind.COMPLETED)
@@ -54,7 +54,7 @@ class _Target:
 # --------------------------------------------------------------------------- #
 
 
-async def _stream(postman: RecordingPostman, **kwargs: Any) -> list[Any]:  # noqa: ANN401
+async def _stream(postman: RecordingPostman, **kwargs: Any) -> list[Any]:
     from arkitekt_runtime.calls import _astream_raw
 
     return [item async for item in _astream_raw(postman, **kwargs)]
@@ -102,7 +102,7 @@ async def test_a_call_with_no_target_sends_neither_id() -> None:
 # that one needs no GraphQL client to stand up.
 
 
-async def _iterate(postman: RecordingPostman, **kwargs: Any) -> list[Any]:  # noqa: ANN401
+async def _iterate(postman: RecordingPostman, **kwargs: Any) -> list[Any]:
     from arkitekt_runtime.invoke import _aiterate_raw as aiterate_raw
 
     return [item async for item in aiterate_raw(postman=postman, **kwargs)]
@@ -215,7 +215,7 @@ def test_an_assign_input_without_a_policy_dumps_as_it_did_before_policies() -> N
     """A published rekuest spreads the dump into an assign that takes no ``policy``."""
     from arkitekt_runtime.types import AssignInput, TaskPolicy
 
-    def assign_before_policies(*, args: dict, capture: bool, **rest: Any) -> dict:  # noqa: ANN401
+    def assign_before_policies(*, args: dict, capture: bool, **rest: Any) -> dict:
         assert "policy" not in rest
         return rest
 

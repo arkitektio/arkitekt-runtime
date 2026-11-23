@@ -6,7 +6,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Protocol,
-    Self,
     runtime_checkable,
 )
 
@@ -36,7 +35,7 @@ class Shelver(Protocol):
         self,
         identifier: Identifier,
         value: Any,  # noqa: ANN401
-    ) -> str:  # noqa: ANN401
+    ) -> str:
         """Put a value on the shelve and return the key. This is used to store
         values on the shelve."""
         ...
@@ -103,7 +102,7 @@ class ActorContext(Shelver, LockHost, Capturable, Protocol):
         """Send a message from an actor up to the agent, which forwards it onward."""
         ...
 
-    async def aget_read_only_proxy(self, key: str) -> AnyState:  # noqa: ANN401
+    async def aget_read_only_proxy(self, key: str) -> AnyState:
         """Get a state an actor only reads. See the note on the agent implementation:
         read-only is declarative, not enforced."""
         ...
@@ -156,7 +155,9 @@ class AgentLifecycle(Protocol):
         """Connect, then process messages until cancelled."""
         ...
 
-    async def aconnect(self, context: Any = None, timeout: float | None = None) -> None:
+    async def aconnect(
+        self, context: object = None, timeout: float | None = None
+    ) -> None:
         """Start the agent and connect, returning once the server acknowledges it."""
         ...
 
@@ -252,7 +253,7 @@ class Actor(Protocol):
         ...
 
     async def asend(
-        self: Self,
+        self,
         message: messages.FromAgentMessage,
     ) -> None:
         """Send a message to the actor. This method will send a message to the
@@ -261,7 +262,7 @@ class Actor(Protocol):
         ...
 
     async def apass(
-        self: Self,
+        self,
         message: messages.ToAgentMessage,
     ) -> None:
         """Pass a message to the actor. This method will pass a message to the
@@ -270,7 +271,7 @@ class Actor(Protocol):
         ...
 
     async def acheck_task(
-        self: Self,
+        self,
         task_id: str,
     ) -> bool:
         """Check the task. This method will check the task and

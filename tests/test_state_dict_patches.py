@@ -6,6 +6,7 @@ and is lost.
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -133,7 +134,7 @@ def test_a_replaced_map_of_a_map() -> None:
     ids=["a map in a list", "a list in a map", "a number in a map"],
 )
 def test_maps_and_lists_nest(
-    start: Moves, change: Any, path: str, expected: float
+    start: Moves, change: Callable[[Moves], None], path: str, expected: float
 ) -> None:
     state, recorder, structures = adopted(start)
     change(state)

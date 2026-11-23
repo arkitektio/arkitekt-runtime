@@ -13,6 +13,7 @@ with the actor's structure registry.
 A dependency's state demands are not readable through the proxy.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from arkitekt_spec.actions import ActionKind
@@ -76,29 +77,29 @@ class AgentMethodProxy:
         kwargs.setdefault("call_policy", self.action.policy)
         return kwargs
 
-    def call(self, *args: Any, **kwargs: Any) -> Any:
+    def call(self, *args: Any, **kwargs: Any) -> object:
         """Call the dependency's method and block for its result."""
         return call_dependency(*self._call_args(), *args, **self._call_kwargs(kwargs))
 
-    async def acall(self, *args: Any, **kwargs: Any) -> Any:
+    async def acall(self, *args: Any, **kwargs: Any) -> object:
         """Call the dependency's method and await its result."""
         return await acall_dependency(
             *self._call_args(), *args, **self._call_kwargs(kwargs)
         )
 
-    def iterate(self, *args: Any, **kwargs: Any) -> Any:
+    def iterate(self, *args: Any, **kwargs: Any) -> object:
         """Stream the dependency's generator method, blocking between its yields."""
         return iterate_dependency(
             *self._call_args(), *args, **self._call_kwargs(kwargs)
         )
 
-    def aiterate(self, *args: Any, **kwargs: Any) -> Any:
+    def aiterate(self, *args: Any, **kwargs: Any) -> AsyncIterator[object]:
         """Stream the dependency's generator method as an async iterator."""
         return aiterate_dependency(
             *self._call_args(), *args, **self._call_kwargs(kwargs)
         )
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 -- stands in for the declared method: a stream, an awaitable or a value, as the protocol says
         """Call as the protocol declared the method.
 
         A method annotated as a generator streams (an iterator, async if the method is

@@ -50,7 +50,7 @@ class QtInLoopBuilder(QtCore.QObject):
         *args,  # noqa: ANN002
         parent: QtWidgets.QWidget | None = None,
         definition: DefinitionInput = None,
-        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
+        **actor_kwargs: Any,
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)
@@ -60,7 +60,7 @@ class QtInLoopBuilder(QtCore.QObject):
         self.actor_kwargs = actor_kwargs
         self.definition = definition
 
-    def qt_assign(self, future: QtFuture[Any], *args, **kwargs) -> None:
+    def qt_assign(self, future: QtFuture[Any], *args: Any, **kwargs: Any) -> None:
         """Assigns the future to the coroutine."""
         try:
             result = self.wrapped_function(*args, **kwargs)
@@ -113,7 +113,7 @@ class QtFutureBuilder(QtCore.QObject):
         *args,  # noqa: ANN002
         parent: QtWidgets.QWidget | None = None,
         definition: DefinitionInput = None,
-        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
+        **actor_kwargs: Any,
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)
@@ -166,7 +166,7 @@ class QtGeneratorBuilder(QtCore.QObject):
         parent: QtWidgets.QWidget | None = None,
         structure_registry: StructureRegistry | None = None,
         definition: DefinitionInput | None = None,
-        **actor_kwargs: Any,  # noqa: ANN401 -- forwarded to the actor as is
+        **actor_kwargs: Any,
     ) -> None:
         """Initialize the builder."""
         super().__init__(*args, parent=parent)

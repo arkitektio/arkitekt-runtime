@@ -21,7 +21,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Self,
+    TypeVar,
 )
 
 import janus
@@ -128,6 +128,9 @@ NO_CALLER_MESSAGE = (
 )
 
 
+_NoCallerPostmanT = TypeVar("_NoCallerPostmanT", bound="NoCallerPostman")
+
+
 class NoCallerPostman:
     """The caller of an agent that cannot call other actions: every call fails at once.
 
@@ -173,7 +176,7 @@ class NoCallerPostman:
         raise NoCallerError(NO_CALLER_MESSAGE)
         yield  # an async generator, like every postman's aassign
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self: _NoCallerPostmanT) -> _NoCallerPostmanT:
         """Nothing to connect."""
         return self
 
@@ -194,6 +197,9 @@ class _Reported:
     at: float = 0.0
     progress: int | None = None
     message: str | None = None
+
+
+_BaseAgentT = TypeVar("_BaseAgentT", bound="BaseAgent")
 
 
 class BaseAgent(KoiledModel):
@@ -817,10 +823,10 @@ class BaseAgent(KoiledModel):
 
         try:
             return self.app_registry.get_registry_for_interface(interface)
-        except (KeyError, AssertionError):
+        except (KeyError, AssertionError) as e:
             raise AgentException(
                 f"No structure registry found for interface {interface}"
-            )
+            ) from e
 
     def _shelve_frame(
         self,
@@ -872,7 +878,7 @@ class BaseAgent(KoiledModel):
         self,
         identifier: Identifier,
         value: Any,  # noqa: ANN401
-    ) -> str:  # noqa: ANN401
+    ) -> str:
         """Shelve a value (see :meth:`put_on_shelve`) and return its resource id.
 
         Its label and description are asked of the value first (``aget_label``/
@@ -2196,10 +2202,10 @@ class BaseAgent(KoiledModel):
             if actor_builder is None:
                 actor_builder = actor_builder_for(self.app_registry, assign.interface)
                 self._actor_builders[assign.interface] = actor_builder
-        except KeyError:
+        except KeyError as e:
             raise ProvisionException(
                 f"No actor builder found for interface {assign.interface} in agent {self.name}"
-            )
+            ) from e
 
         actor = actor_builder(agent=self)
 
@@ -2433,7 +2439,7 @@ class BaseAgent(KoiledModel):
         await self.aconnect(context=context)
         await self.aloop()
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self: _BaseAgentT) -> _BaseAgentT:
         """Enter the agent context manager. This is used to enter the agent
 
         context manager and start the agent. The agent will then start the

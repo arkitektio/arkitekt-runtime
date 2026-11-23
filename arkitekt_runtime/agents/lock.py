@@ -31,7 +31,7 @@ Deadlock invariants
 import asyncio
 import logging
 from types import TracebackType
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, TypeVar
 
 from arkitekt_spec.actions import LockImplementationInput
 
@@ -48,7 +48,7 @@ class TaskLock:
     (``agent.alock``/``aunlock``) so the server can display lock state.
     """
 
-    def __init__(self, agent: "LockHost", lock: "LockImplementationInput"):
+    def __init__(self, agent: "LockHost", lock: "LockImplementationInput") -> None:
         self.agent = agent
         self.lock = asyncio.Lock()
         self.lock_key = lock.definition.key
@@ -84,6 +84,9 @@ class TaskLock:
             self.lock.release()
 
 
+_LockGroupT = TypeVar("_LockGroupT", bound="LockGroup")
+
+
 class LockGroup:
     """The set of task locks an assignment holds while it runs.
 
@@ -106,7 +109,7 @@ class LockGroup:
         self.task_id = task_id
         self._acquired_locks: list[TaskLock] = []
 
-    async def acquire(self) -> Self:
+    async def acquire(self: _LockGroupT) -> _LockGroupT:
         """Acquire all locks in sorted key order.
 
         Returns:
@@ -129,7 +132,7 @@ class LockGroup:
                 logger.exception("Failed to release lock %s", lock.lock_key)
         self._acquired_locks.clear()
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self: _LockGroupT) -> _LockGroupT:
         """Acquire all locks (sorted) and return the group."""
         try:
             return await self.acquire()

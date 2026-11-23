@@ -63,7 +63,7 @@ async def _dict(
     expanded = await asyncio.gather(
         *[_expand(child, item, ctx.child(port.key, key)) for key, item in value.items()]
     )
-    return dict(zip(value.keys(), expanded))
+    return dict(zip(value.keys(), expanded, strict=True))
 
 
 async def _list(
@@ -200,7 +200,9 @@ async def _model(
             for child in port.children
         ]
     )
-    params = {child.key: val for child, val in zip(port.children, expanded)}
+    params = {
+        child.key: val for child, val in zip(port.children, expanded, strict=True)
+    }
     try:
         fmodel = ctx.registry.get_fullfilled_model(port.identifier)
     except KeyError as e:

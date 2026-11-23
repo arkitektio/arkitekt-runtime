@@ -140,7 +140,9 @@ async def test_a_port_without_constraints_carries_anything(agent: BaseAgent) -> 
     assert (await acall_local(agent, "passthrough", Picture("9"))).channels == 9
 
 
-def test_an_object_that_does_not_fit_the_agent_is_refused(monkeypatch) -> None:
+def test_an_object_that_does_not_fit_the_agent_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from arkitekt_spec.actions import FitsInput
     from arkitekt_spec.declare.blok.parser import parse_fits
 

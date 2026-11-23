@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import AsyncGenerator, Callable
-from typing import Any, Self
+from typing import Any
 
 from arkitekt_spec.declare.errors import STATE_PRECONDITION, NonDeterministicWorkflow
 from arkitekt_spec.declare.structures.errors import SerializationError
@@ -45,14 +45,12 @@ class FunctionalActor(SerializingActor):
 
     tests_state_requires = True
 
-    def aiterate_results(
-        self: Self, **params: dict[str, Any]
-    ) -> AsyncGenerator[Any, None]:
+    def aiterate_results(self, **params: dict[str, Any]) -> AsyncGenerator[Any, None]:
         """Invoke the wrapped callable and yield its result(s)."""
         return self.iterator(self.assign, **params)
 
     async def on_assign(
-        self: Self,
+        self,
         assignment: Assign,
     ) -> None:
         """This method is called when the actor is assigned to a task"""

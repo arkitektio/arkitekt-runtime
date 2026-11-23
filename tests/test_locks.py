@@ -8,6 +8,7 @@ policy controls whether assignments to one actor run serially or in parallel.
 """
 
 import asyncio
+from typing import cast
 
 import pytest
 from arkitekt_spec.actions import (
@@ -15,6 +16,7 @@ from arkitekt_spec.actions import (
     LockImplementationInput,
 )
 
+from arkitekt_runtime.actors.base import Actor
 from arkitekt_runtime.actors.build import actor_builder_for
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.agents.lock import LockGroup, TaskLock
@@ -97,12 +99,13 @@ async def test_failed_lock_notification_releases_the_local_lock() -> None:
     assert task_lock.locking_task is None
 
 
-def _spawn_actor(mock_agent: BaseAgent, interface: str):
+def _spawn_actor(mock_agent: BaseAgent, interface: str) -> Actor:
     builder = actor_builder_for(mock_agent.app_registry, interface)
-    return builder(agent=mock_agent)
+    # Every builder here builds one of the runtime's actors.
+    return cast(Actor, builder(agent=mock_agent))
 
 
-async def _enter_twice(actor, events: list[str]) -> None:
+async def _enter_twice(actor: Actor, events: list[str]) -> None:
     async def run(task: str) -> None:
         async with actor.sync_context(task, "iface"):
             events.append(f"in-{task}")
@@ -168,7 +171,7 @@ async def test_shared_lock_key_serializes_across_actors(
 
     events: list[str] = []
 
-    async def run(actor, task: str) -> None:
+    async def run(actor: Actor, task: str) -> None:
         async with actor.sync_context(task, "iface"):
             events.append(f"in-{task}")
             await asyncio.sleep(0.02)

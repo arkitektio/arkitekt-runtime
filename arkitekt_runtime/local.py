@@ -16,7 +16,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator
 from types import TracebackType
-from typing import Any, Self, TypeVar
+from typing import Any, TypeVar
 
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.app import AppRegistry
@@ -40,6 +40,9 @@ LOCAL_USER = "local"
 LOCAL_ORG = "local"
 
 T = TypeVar("T", bound=messages.FromAgentMessage)
+
+
+_MemoryAgentTransportT = TypeVar("_MemoryAgentTransportT", bound="MemoryAgentTransport")
 
 
 class MemoryAgentTransport(AgentTransport):
@@ -156,7 +159,7 @@ class MemoryAgentTransport(AgentTransport):
         self._connected = True
         await self.anotify_connection_change(True)
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self: _MemoryAgentTransportT) -> _MemoryAgentTransportT:
         """Enter the transport context."""
         return self
 
@@ -315,9 +318,9 @@ async def aiterate_local_raw(
 async def aiterate_local(
     agent: BaseAgent,
     interface: str,
-    *args: Any,  # noqa: ANN401 -- the action's own arguments
+    *args: Any,
     state_requires: "list[StateRequirement] | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> AsyncIterator[Any]:
     """Call ``interface`` in-process with Python values and yield each of its results.
 
@@ -349,7 +352,7 @@ async def aiterate_local(
 
     args = tuple(
         _each_memory_value(port, value, shelve)
-        for port, value in zip(definition.args, args)
+        for port, value in zip(definition.args, args, strict=False)
     )
     by_key = {port.key: port for port in definition.args}
     kwargs = {
@@ -370,7 +373,7 @@ async def aiterate_local(
         returns = await aexpand_returns(definition, raw, structure_registry=registry)
         returns = tuple(
             _each_memory_value(port, value, unshelve)
-            for port, value in zip(definition.returns, returns)
+            for port, value in zip(definition.returns, returns, strict=False)
         )
         if not returns:
             yield None
@@ -383,9 +386,9 @@ async def aiterate_local(
 async def acall_local(
     agent: BaseAgent,
     interface: str,
-    *args: Any,  # noqa: ANN401 -- the action's own arguments
+    *args: Any,
     state_requires: "list[StateRequirement] | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> Any:  # noqa: ANN401 -- whatever the action returns
     """Call ``interface`` in-process and return its result (the last, of a generator).
 

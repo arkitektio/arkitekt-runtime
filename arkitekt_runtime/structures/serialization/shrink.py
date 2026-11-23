@@ -7,9 +7,10 @@ handler in :data:`SHRINKERS`; container kinds recurse through
 """
 
 import asyncio
+import datetime
 from collections.abc import Sequence
 from enum import Enum
-from typing import Any, cast
+from typing import Any, SupportsFloat, SupportsIndex, SupportsInt, cast
 
 from arkitekt_spec.actions import PortKind
 from arkitekt_spec.declare.structures.errors import (
@@ -33,8 +34,8 @@ from arkitekt_runtime.structures.serialization.predication import predicate_port
 
 async def _shrink(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     """Recursive entry point used by the container handlers."""
     return await ashrink_arg(port, value, structure_registry=ctx.registry)
@@ -42,8 +43,8 @@ async def _shrink(
 
 async def _dict(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if not isinstance(value, dict):
         raise ShrinkingError(f"Expected value to be a dict, but got {type(value)}")
@@ -62,8 +63,8 @@ async def _dict(
 
 async def _list(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if not isinstance(value, list):
         raise ShrinkingError(f"Expected value to be a list, but got {type(value)}")
@@ -82,8 +83,8 @@ async def _list(
 
 async def _union(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if not port.children:
         raise ShrinkingError(f"Port {port} is a union but has no children")
@@ -102,8 +103,8 @@ async def _union(
 
 async def _model(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if not port.identifier:
         raise ShrinkingError(f"Port {port} is a model but has no identifier")
@@ -121,7 +122,7 @@ async def _model(
     except Exception as e:
         raise PortShrinkingError(f"Couldn't shrink Children {port.children}") from e
     params: dict[str, Any] = {
-        child.key: val for child, val in zip(port.children, shrunk)
+        child.key: val for child, val in zip(port.children, shrunk, strict=True)
     }
     params["__identifier"] = port.identifier
     return params
@@ -129,8 +130,8 @@ async def _model(
 
 async def _enum(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if port.identifier is None:
         raise ShrinkingError(f"Port {port} is an enum but has no identifier")
@@ -149,16 +150,16 @@ async def _enum(
 
 async def _memory_structure(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     return shrink_memory_reference(port, value)
 
 
 async def _structure(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     if not port.identifier:
         raise ShrinkingError(f"Port {port} is a structure but has no identifier")
@@ -182,38 +183,42 @@ async def _structure(
 
 
 async def _float(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort,
+    value: SupportsFloat | SupportsIndex | str,
+    ctx: SerializationContext,
+) -> JSONSerializable:
     return float(value)
 
 
 async def _int(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort,
+    value: SupportsInt | SupportsIndex | str,
+    ctx: SerializationContext,
+) -> JSONSerializable:
     return int(value)
 
 
 async def _date(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: datetime.date, ctx: SerializationContext
+) -> JSONSerializable:
     return value.isoformat()
 
 
 async def _bool(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     return bool(value)
 
 
 async def _string(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     return str(value)
 
 
 async def _quantity(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     return shrink_quantity(value)
 
 

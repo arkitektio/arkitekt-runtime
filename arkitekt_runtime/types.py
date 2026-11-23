@@ -25,10 +25,10 @@ from pydantic import (
 class GraphQLDefault:
     """Records a GraphQL field schema default value. The client omits the field so the server applies its own default; this preserves the value for introspection."""
 
-    def __init__(self, value):
+    def __init__(self, value: object) -> None:
         self.value = value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "GraphQLDefault(" + repr(self.value) + ")"
 
 

@@ -12,9 +12,9 @@ from arkitekt_runtime.structures.serialization.actor import ashrink_return
 
 
 async def ashrink_state(
-    state: AnyState,  # noqa: ANN401
+    state: AnyState,
     schema: StateDefinitionInput,
-    structure_reg: StructureRegistry,  # noqa: ANN401
+    structure_reg: StructureRegistry,
     shelver: Shelver,
 ) -> dict[str, Any]:
     """Shrink a state  using a schema and a structure registry

@@ -83,7 +83,7 @@ class ExpandBatcher:
                 raise
             return
 
-        for id, value in zip(ids, found):
+        for id, value in zip(ids, found, strict=False):
             future = batch.waiting[id]
             if future.done():
                 continue

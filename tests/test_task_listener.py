@@ -7,7 +7,7 @@ stays the agent's own.
 
 import asyncio
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 import pytest
 from arkitekt_spec.declare.agents.connection import TaskEvent, TaskEventKind
@@ -17,11 +17,29 @@ from arkitekt_spec.declare.task import Task
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
+from tests.agent_helpers import sent_until
+
+
+class Heard(list[TaskEvent]):
+    """The events the listener heard, and a way to wait for one without polling."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._grown = asyncio.Event()
+
+    def hear(self, event: TaskEvent) -> None:
+        self.append(event)
+        self._grown.set()
+
+    async def until(self, holds: Callable[[], bool]) -> None:
+        while not holds():
+            self._grown.clear()
+            await self._grown.wait()
 
 
 @pytest.fixture()
-def heard() -> list[TaskEvent]:
-    return []
+def heard() -> Heard:
+    return Heard()
 
 
 @pytest.fixture()
@@ -30,9 +48,9 @@ def transport() -> MemoryAgentTransport:
 
 
 @pytest.fixture()
-def agent(transport: MemoryAgentTransport, heard: list[TaskEvent]) -> BaseAgent:
+def agent(transport: MemoryAgentTransport, heard: Heard) -> BaseAgent:
     async def listener(event: TaskEvent) -> None:
-        heard.append(event)
+        heard.hear(event)
 
     agent = BaseAgent(
         name="listener-test",
@@ -69,19 +87,16 @@ def _assign(task: str, interface: str, **args: object) -> messages.Assign:
     )
 
 
-async def _until_ended(heard: list[TaskEvent]) -> None:
+async def _until_ended(heard: Heard) -> None:
     ended = (TaskEventKind.DONE, TaskEventKind.FAILED, TaskEventKind.CANCELLED)
-
-    async def wait() -> None:
-        while not any(event.kind in ended for event in heard):
-            await asyncio.sleep(0.01)
-
-    await asyncio.wait_for(wait(), timeout=5.0)
+    await asyncio.wait_for(
+        heard.until(lambda: any(event.kind in ended for event in heard)), timeout=5.0
+    )
 
 
 @pytest.mark.asyncio
 async def test_it_hears_the_arguments_the_progress_the_result_and_the_end(
-    agent: BaseAgent, transport: MemoryAgentTransport, heard: list[TaskEvent]
+    agent: BaseAgent, transport: MemoryAgentTransport, heard: Heard
 ) -> None:
     def move(x: int, task: Task) -> int:
         """Move."""
@@ -111,7 +126,7 @@ async def test_it_hears_the_arguments_the_progress_the_result_and_the_end(
 
 @pytest.mark.asyncio
 async def test_a_failure_carries_its_error(
-    agent: BaseAgent, transport: MemoryAgentTransport, heard: list[TaskEvent]
+    agent: BaseAgent, transport: MemoryAgentTransport, heard: Heard
 ) -> None:
     def move(x: int) -> int:
         """Move."""
@@ -130,7 +145,7 @@ async def test_a_failure_carries_its_error(
 
 @pytest.mark.asyncio
 async def test_a_cancelled_sync_action_is_heard_as_cancelled_not_failed(
-    agent: BaseAgent, transport: MemoryAgentTransport, heard: list[TaskEvent]
+    agent: BaseAgent, transport: MemoryAgentTransport, heard: Heard
 ) -> None:
     """The cancellation reaches a sync body where it asks: ``task.check_cancelled()``."""
     started = threading.Event()
@@ -186,8 +201,7 @@ async def test_a_listener_that_raises_does_not_harm_the_task(
     await _pump(agent)
 
     async def wait() -> None:
-        while not transport.of_type(messages.Completed):
-            await asyncio.sleep(0.01)
+        await sent_until(transport, lambda: bool(transport.of_type(messages.Completed)))
 
     await asyncio.wait_for(wait(), timeout=5.0)
     assert transport.of_type(messages.Yield)[0].returns == {"return0": 3}

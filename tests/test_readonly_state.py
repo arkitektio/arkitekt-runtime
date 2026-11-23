@@ -6,6 +6,7 @@ write would publish a patch like any other.
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import pytest
@@ -76,7 +77,7 @@ def test_view_reads_are_live_not_a_snapshot() -> None:
         pytest.param(lambda v: v.meta.pop("a", None), id="dict-pop"),
     ],
 )
-def test_every_mutation_path_is_refused(mutate) -> None:
+def test_every_mutation_path_is_refused(mutate: Callable[[Board], object]) -> None:
     """Attribute writes and container mutation alike."""
     view = read_only_view(_evented_board(), "Board")
     with pytest.raises(ReadOnlyStateError):
@@ -232,7 +233,7 @@ def _replay(patches: list[dict], initial: list) -> list:
     ],
 )
 def test_slice_assignment_emits_replayable_patches(
-    initial, target_slice, new_values
+    initial: list[int], target_slice: slice, new_values: list[int]
 ) -> None:
     """Length-changing slice assignment must publish patches a JSON-patch consumer can replay."""
     board = _evented_board()

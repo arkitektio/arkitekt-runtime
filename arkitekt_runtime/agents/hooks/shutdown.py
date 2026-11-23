@@ -38,7 +38,7 @@ class WrappedShutdownHook(ShutdownWithVariables):
         agent: StateHolder,
         contexts: dict[str, Any],
         states: dict[str, Any],
-        app_context: Any,
+        app_context: object,
         bound_app: BoundApp | None = None,
     ) -> None:
         """Run the shutdown hook in the event loop"""
@@ -69,7 +69,7 @@ class ThreadedShutdownHook(ShutdownWithVariables):
         agent: StateHolder,
         contexts: dict[str, Any],
         states: dict[str, Any],
-        app_context: Any,
+        app_context: object,
         bound_app: BoundApp | None = None,
     ) -> None:
         """Run the shutdown hook in a thread"""

@@ -23,6 +23,7 @@ from arkitekt_spec.declare.task import Task, TaskBlok
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
+from tests.agent_helpers import sent_until
 
 from .test_workflow_replay import _agent, _assign, _drive, _returned
 
@@ -62,7 +63,7 @@ def picks(task: Task) -> str:
     return f"answered:{values.get('image')}"
 
 
-def _dynamic_agent(*workflows: Any) -> tuple[BaseAgent, MemoryAgentTransport]:  # noqa: ANN401
+def _dynamic_agent(*workflows: Any) -> tuple[BaseAgent, MemoryAgentTransport]:
     """An agent whose workflows declare dynamic_asks."""
     registry = AppRegistry()
     for workflow in workflows:
@@ -163,8 +164,7 @@ async def _until(
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def sent() -> object:
-        while not transport.of_type(kind):
-            await asyncio.sleep(0.01)
+        await sent_until(transport, lambda: bool(transport.of_type(kind)))
         return transport.of_type(kind)[0]
 
     return loop, await asyncio.wait_for(sent(), timeout=5.0)
@@ -236,8 +236,7 @@ async def test_a_declared_ask_holds_by_key_and_answers_typed() -> None:
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def second() -> object:
-        while len(transport.of_type(messages.Held)) < 2:
-            await asyncio.sleep(0.01)
+        await sent_until(transport, lambda: len(transport.of_type(messages.Held)) >= 2)
         return transport.of_type(messages.Held)[1]
 
     ok = await asyncio.wait_for(second(), timeout=5.0)

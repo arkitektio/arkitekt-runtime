@@ -29,7 +29,7 @@ class WordsPostman:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    async def aassign(self, **kwargs: Any) -> AsyncGenerator[Event, None]:  # noqa: ANN401
+    async def aassign(self, **kwargs: Any) -> AsyncGenerator[Event, None]:
         self.calls.append(kwargs)
         for word in ("hello", "from", "testo"):
             yield Event(TaskEventKind.YIELD, returns={"return0": word})

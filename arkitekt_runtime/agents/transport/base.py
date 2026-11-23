@@ -5,7 +5,7 @@ import warnings
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from types import TracebackType
-from typing import Self, cast
+from typing import TypeVar, cast
 
 from koil.composition import KoiledModel
 from pydantic import ConfigDict, PrivateAttr
@@ -26,6 +26,9 @@ __all__ = [
     "HandshakeProvider",
     "TransportHost",
 ]
+
+
+_AgentTransportT = TypeVar("_AgentTransportT", bound="AgentTransport")
 
 
 class AgentTransport(KoiledModel):
@@ -134,7 +137,7 @@ class AgentTransport(KoiledModel):
         """Disconnect the agent."""
         raise NotImplementedError("This is an abstract Base Class")
 
-    async def __aenter__(self) -> Self:  # noqa: ANN001
+    async def __aenter__(self: _AgentTransportT) -> _AgentTransportT:
         """Enter the context manager."""
         return self
 

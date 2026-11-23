@@ -15,6 +15,7 @@ from arkitekt_spec.declare.task import AssignPrompt, StateRef, Task
 from arkitekt_runtime import messages
 from arkitekt_runtime.agents.base import BaseAgent
 from arkitekt_runtime.local import MemoryAgentTransport
+from tests.agent_helpers import sent_until
 
 from .agent_helpers import run_assignment
 
@@ -55,10 +56,13 @@ async def _ended(agent: BaseAgent, message: messages.Assign) -> MemoryAgentTrans
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def until_ended() -> None:
-        while not (
-            transport.of_type(messages.Failed) or transport.of_type(messages.Critical)
-        ):
-            await asyncio.sleep(0.01)
+        await sent_until(
+            transport,
+            lambda: bool(
+                transport.of_type(messages.Failed)
+                or transport.of_type(messages.Critical)
+            ),
+        )
 
     await asyncio.wait_for(until_ended(), timeout=5.0)
     return transport
@@ -204,8 +208,7 @@ async def _until_held(agent: BaseAgent, transport: MemoryAgentTransport):  # noq
     await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
     async def waiting() -> messages.Held:
-        while not transport.of_type(messages.Held):
-            await asyncio.sleep(0.01)
+        await sent_until(transport, lambda: bool(transport.of_type(messages.Held)))
         return transport.of_type(messages.Held)[0]
 
     return loop, await asyncio.wait_for(waiting(), timeout=5.0)
@@ -213,8 +216,7 @@ async def _until_held(agent: BaseAgent, transport: MemoryAgentTransport):  # noq
 
 async def _returned(transport: MemoryAgentTransport) -> Any:  # noqa: ANN401
     async def done() -> None:
-        while not transport.of_type(messages.Yield):
-            await asyncio.sleep(0.01)
+        await sent_until(transport, lambda: bool(transport.of_type(messages.Yield)))
 
     await asyncio.wait_for(done(), timeout=5.0)
     return transport.of_type(messages.Yield)[0].returns["return0"]
@@ -287,7 +289,7 @@ class Guardian:
         self.changed = changed
         self.asked: list[dict] = []
 
-    async def astate_revision(self, **kwargs: Any) -> messages.StateRevisionResponse:  # noqa: ANN401
+    async def astate_revision(self, **kwargs: Any) -> messages.StateRevisionResponse:
         self.asked.append(kwargs)
         return messages.StateRevisionResponse(
             request="r",

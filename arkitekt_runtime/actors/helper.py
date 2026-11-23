@@ -1,7 +1,7 @@
 """The AssignmentHelper is a helper class that is used to manage the assignment"""
 
 from enum import Enum
-from typing import Any, Protocol, Self, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from arkitekt_spec.actions import Execution
 from arkitekt_spec.declare.errors import NonDeterministicWorkflow
@@ -62,7 +62,7 @@ class AssignmentHelper(BaseModel):
         return actor.structure_registry
 
     async def alog(
-        self: Self, level: LogLevel | messages.LogLevelLiteral, message: str
+        self, level: LogLevel | messages.LogLevelLiteral, message: str
     ) -> None:
         """Send a log message to the actor.
 

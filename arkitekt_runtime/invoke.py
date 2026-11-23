@@ -215,7 +215,7 @@ async def _acall_raw(
 
 async def _acall(
     target: "CallTarget | ImplementationTarget",
-    *args: Any,  # noqa: ANN401 -- the action's own arguments, shrunk by its registry
+    *args: Any,
     postman: Postman,
     structure_registry: StructureRegistry,
     parent: Assign | None = None,
@@ -232,7 +232,7 @@ async def _acall(
     max_resumes: int | None = None,
     inquire_after: float | None = None,
     on_agent: "AgentTarget | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
     """Call an action and return its expanded result.
 
@@ -288,7 +288,7 @@ async def _acall(
 
 async def _aiterate(
     target: "CallTarget | ImplementationTarget",
-    *args: Any,  # noqa: ANN401 -- the action's own arguments
+    *args: Any,
     postman: Postman,
     structure_registry: StructureRegistry,
     parent: Assign | None = None,
@@ -305,7 +305,7 @@ async def _aiterate(
     max_resumes: int | None = None,
     inquire_after: float | None = None,
     on_agent: "AgentTarget | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator action's yields, each one expanded (``on_agent`` as in :func:`_acall`)."""
     action, implementation_id = _resolve_target(target)

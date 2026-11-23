@@ -24,7 +24,7 @@ def _format_path_tree(path: Sequence[str] | None) -> str:
 
 def to_shrink_port_error(
     port: SerializablePort,
-    value: Any,
+    value: object,
     message: str,
     *,
     path: Sequence[str] | None = None,
@@ -45,7 +45,7 @@ def to_shrink_port_error(
 
 def to_port_error(
     port: SerializablePort,
-    value: Any,
+    value: object,
     message: str,
     *,
     path: Sequence[str] | None = None,

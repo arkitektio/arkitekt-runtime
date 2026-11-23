@@ -265,7 +265,7 @@ class Recording:
         self.event = event
         self.asked: dict[str, Any] = {}
 
-    async def aassign(self, **kwargs: Any) -> AsyncIterator[Any]:  # noqa: ANN401
+    async def aassign(self, **kwargs: Any) -> AsyncIterator[Any]:
         self.asked = kwargs
         yield self.event
 

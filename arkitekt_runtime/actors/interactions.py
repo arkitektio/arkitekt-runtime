@@ -100,7 +100,7 @@ class InformProxy:
         self.task = task
         self.structure_registry = structure_registry
 
-    async def ainform(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401 -- the inform's own arguments
+    async def ainform(self, *args: Any, **kwargs: Any) -> None:
         """Show the blok, opened on the arguments; nothing waits on it."""
         shrunk = await ashrink_actor_args(
             self.inform.definition,

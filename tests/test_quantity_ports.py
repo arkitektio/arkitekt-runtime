@@ -24,6 +24,7 @@ from arkitekt_spec.declare.definition.define import (  # noqa: E402
     convert_object_to_returnport,
     prepare_definition,
 )
+from arkitekt_spec.declare.structures.errors import ExpandingError
 from arkitekt_spec.declare.structures.quantities import (  # noqa: E402
     dimension_of,
     expand_quantity,
@@ -46,10 +47,10 @@ VOLT_DIMENSION = "[mass] * [length] ** 2 / [time] ** 3 / [current]"
 class _Shelver:
     """Minimal Shelver — quantity ports never touch the shelve, but the API needs one."""
 
-    async def aput_on_shelve(self, identifier, value):  # noqa: ANN001, ANN201
+    async def aput_on_shelve(self, identifier: str, value: object) -> str:
         return "unused"
 
-    async def aget_from_shelve(self, key):  # noqa: ANN001, ANN201
+    async def aget_from_shelve(self, key: str) -> None:
         return None
 
 
@@ -166,7 +167,7 @@ def _cap_fn():  # noqa: ANN202
 @pytest.mark.asyncio
 async def test_expand_rejects_wrong_dimension(registry: StructureRegistry) -> None:
     definition = prepare_definition(_volt_fn(), structure_registry=registry)
-    with pytest.raises(Exception):
+    with pytest.raises(ExpandingError):
         await expand_inputs(definition, {"v": "5 ms"}, registry, _Shelver())
 
 

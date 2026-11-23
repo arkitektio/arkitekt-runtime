@@ -162,7 +162,7 @@ def _read_only_class(cls: type, state_name: str) -> type:
         value = object.__getattribute__(self, name)
         return _wrap(value, state_name) if not name.startswith("_") else value
 
-    def __eq__(self: Any, other: object) -> bool:  # noqa: N807
+    def __eq__(self: object, other: object) -> bool:  # noqa: N807
         # The dataclass __eq__ requires an exact class match, which a view never is.
         if not isinstance(other, cls):
             return NotImplemented
@@ -171,7 +171,7 @@ def _read_only_class(cls: type, state_name: str) -> type:
             for f in dataclasses.fields(cls)  # type: ignore[arg-type]
         )
 
-    def __repr__(self: Any) -> str:  # noqa: N807
+    def __repr__(self: object) -> str:  # noqa: N807
         return f"ReadOnly({cls.__name__})"
 
     view_cls = type(

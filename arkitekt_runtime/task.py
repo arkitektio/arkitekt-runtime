@@ -574,7 +574,7 @@ class Task:
     async def acall(
         self,
         target: "CallTarget | ImplementationTarget",
-        *args: Any,  # noqa: ANN401 -- the action's own arguments
+        *args: Any,
         reference: str | None = None,
         hooks: "list[HookInput] | None" = None,
         capture: bool = False,
@@ -587,7 +587,7 @@ class Task:
         max_resumes: int | None = None,
         inquire_after: float | None = None,
         on_agent: "AgentTarget | None" = None,
-        **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+        **kwargs: Any,
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task.
 
@@ -646,9 +646,9 @@ class Task:
     def call(
         self,
         target: "CallTarget | ImplementationTarget",
-        *args: Any,  # noqa: ANN401 -- the action's own arguments
+        *args: Any,
         on_agent: "AgentTarget | None" = None,
-        **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+        **kwargs: Any,
     ) -> Any:  # noqa: ANN401 -- whatever the action returns
         """Call an action as a child of this task, blocking for its result (``on_agent`` as in :meth:`acall`)."""
         self._caller()  # refuse a local task here, not inside koil's loop machinery
@@ -657,7 +657,7 @@ class Task:
     async def aiterate(
         self,
         target: "CallTarget | ImplementationTarget",
-        *args: Any,  # noqa: ANN401 -- the action's own arguments
+        *args: Any,
         reference: str | None = None,
         hooks: "list[HookInput] | None" = None,
         capture: bool = False,
@@ -670,7 +670,7 @@ class Task:
         max_resumes: int | None = None,
         inquire_after: float | None = None,
         on_agent: "AgentTarget | None" = None,
-        **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+        **kwargs: Any,
     ) -> "AsyncGenerator[Any, None]":
         """Stream a generator action's yields as a child of this task (``on_agent`` as in :meth:`acall`)."""
         from arkitekt_runtime.invoke import _aiterate
@@ -701,9 +701,9 @@ class Task:
     def iterate(
         self,
         target: "CallTarget | ImplementationTarget",
-        *args: Any,  # noqa: ANN401 -- the action's own arguments
+        *args: Any,
         on_agent: "AgentTarget | None" = None,
-        **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+        **kwargs: Any,
     ) -> "Generator[Any, None, None]":
         """Stream a generator action's yields, blocking between them (``on_agent`` as in :meth:`acall`)."""
         self._caller()  # refuse a local task here, not inside koil's loop machinery

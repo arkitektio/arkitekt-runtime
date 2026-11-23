@@ -4,13 +4,12 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
 from functools import partial
 from typing import (
     Any,
     ClassVar,
     Literal,
-    Self,
 )
 
 from arkitekt_spec.actions import DefinitionInput, Execution, FitsInput
@@ -188,8 +187,8 @@ class Actor(BaseModel):
 
     @contextlib.asynccontextmanager
     async def sync_context(
-        self: Self, task_id: str, interface: str, extra_locks: Iterable[str] = ()
-    ):
+        self, task_id: str, interface: str, extra_locks: Iterable[str] = ()
+    ) -> AsyncIterator[None]:
         """Context manager that holds the actor's locks while an assignment runs.
 
         Acquisition order is fixed (see the deadlock invariants documented in
@@ -231,7 +230,7 @@ class Actor(BaseModel):
                 await self._areport_owed_end(task_id)
                 raise
 
-    async def on_resume(self: Self, resume: messages.Resume) -> None:
+    async def on_resume(self, resume: messages.Resume) -> None:
         """A function that is called once the actor is resumed from a paused state.
         This can be used to re-initialize the actor after a pause.
 
@@ -261,7 +260,7 @@ class Actor(BaseModel):
             )
 
     async def asend(
-        self: Self,
+        self,
         message: messages.FromAgentMessage,
     ) -> None:
         """A function to send a message to the agent. This is used to send messages
@@ -272,7 +271,7 @@ class Actor(BaseModel):
         """
         await self.agent.asend(self, message=message)
 
-    async def on_pause(self: Self, pause: messages.Pause) -> None:
+    async def on_pause(self, pause: messages.Pause) -> None:
         """A function that is called once the actor is paused. This can be used to
         clean up resources or stop any ongoing tasks.
 
@@ -295,7 +294,7 @@ class Actor(BaseModel):
         self._break_futures[pause.task] = asyncio.Future()
 
     async def on_assign(
-        self: Self,
+        self,
         assignment: messages.Assign,
     ) -> None:
         """A function that is called once the actor is assigned a task. This is used to
@@ -313,7 +312,7 @@ class Actor(BaseModel):
             "Needs to be owerwritten in Actor Subclass. Never use this class directly"
         )
 
-    async def apass(self: Self, message: messages.ToAgentMessage) -> None:
+    async def apass(self, message: messages.ToAgentMessage) -> None:
         """A function that is called once the actor is passed a message. This is used to
         process the message and send the results back to the agent.
 
@@ -323,7 +322,7 @@ class Actor(BaseModel):
         """
         await self.aprocess(message)
 
-    async def acancel(self: Self) -> None:
+    async def acancel(self) -> None:
         """A function to cancel the actor. This is used to cancel the actor and
         stop listening for messages from the agent.
         """
@@ -333,7 +332,7 @@ class Actor(BaseModel):
             prune=False,
         )
 
-    async def _astop_all(self: Self, error: str, prune: bool) -> int:
+    async def _astop_all(self, error: str, prune: bool) -> int:
         """Cancel every running assignment, await each, and report ``Critical(error)``.
 
         The mechanism shared by :meth:`acancel` and :meth:`acancel_for_policy`; the
@@ -385,7 +384,7 @@ class Actor(BaseModel):
         return task_gate(assignment.task)
 
     async def _astop(
-        self: Self,
+        self,
         task_id: str,
         task: asyncio.Task[None],
         end: messages.FromAgentMessage,
@@ -424,14 +423,14 @@ class Actor(BaseModel):
         await self._areport_owed_end(task_id)
         await task
 
-    async def _areport_owed_end(self: Self, task_id: str) -> None:
+    async def _areport_owed_end(self, task_id: str) -> None:
         """Report the end ``task_id`` is being stopped with, once."""
         end = self._owed_ends.pop(task_id, None)
         if end is not None:
             await self.agent.asend(self, message=end)
 
     async def ahold(
-        self: Self,
+        self,
         task_id: str,
         message: str,
         details: dict[str, Any] | None = None,
@@ -471,7 +470,7 @@ class Actor(BaseModel):
         )
 
     async def ainform(
-        self: Self, task_id: str, blok: TaskBlok, message: str | None = None
+        self, task_id: str, blok: TaskBlok, message: str | None = None
     ) -> None:
         """Show a person ``blok`` while ``task_id`` goes on (``task.inform``). Nothing waits:
         a refusal, should one come, is logged (:meth:`on_blok_refused`)."""
@@ -479,7 +478,7 @@ class Actor(BaseModel):
             self, message=messages.Inform(task=task_id, message=message, blok=blok)
         )
 
-    async def on_blok_refused(self: Self, refused: messages.BlokRefused) -> None:
+    async def on_blok_refused(self, refused: messages.BlokRefused) -> None:
         """A blok ``refused.task`` sent could not be made: the ask waiting on it raises
         :class:`BlokRefused`; an inform's is only logged, as nothing waits for it."""
         future = self._hold_futures.get(refused.task)
@@ -490,7 +489,7 @@ class Actor(BaseModel):
             return
         future.set_exception(BlokRefused(refused.reason, task=refused.task))
 
-    async def on_decide(self: Self, decide: messages.Decide) -> None:
+    async def on_decide(self, decide: messages.Decide) -> None:
         """Answer the hold ``decide.task`` waits in."""
         future = self._hold_futures.get(decide.task)
         if future is None or future.done():
@@ -500,7 +499,7 @@ class Actor(BaseModel):
             return
         future.set_result(decide)
 
-    async def abreak(self: Self, task_id: str) -> bool:
+    async def abreak(self, task_id: str) -> bool:
         """A function to pause the actor. This is used to instruct the actor to
         stop processing the assignment at the current time
         """
@@ -526,7 +525,7 @@ class Actor(BaseModel):
             )
             return False
 
-    def assign_task_done(self: Self, task_id: str, task: asyncio.Task[None]) -> None:
+    def assign_task_done(self, task_id: str, task: asyncio.Task[None]) -> None:
         """Called once an assignment task finishes, however it finished.
 
         This prunes ``_running_asyncio_tasks``. Nothing used to: the map was only
@@ -559,7 +558,7 @@ class Actor(BaseModel):
         except Exception as e:
             logger.error(f"Assign task {task} failed with exception {e}", exc_info=True)
 
-    async def acancel_for_policy(self: Self, reason: str) -> int:
+    async def acancel_for_policy(self, reason: str) -> int:
         """Stop this actor's in-flight work because the disconnect policy says so.
 
         Deliberately *not* :meth:`acancel`. That one reports ``Critical`` with "this
@@ -593,7 +592,7 @@ class Actor(BaseModel):
         )
         return await self._astop_all(reason, prune=True)
 
-    async def acheck_task(self: Self, task_id: str) -> bool:
+    async def acheck_task(self, task_id: str) -> bool:
         """A function to check if the assignment is still running. This is used to
         check if the assignment is still running and if it is still valid.
 
@@ -607,7 +606,7 @@ class Actor(BaseModel):
         return False
 
     async def _astop_task(
-        self: Self,
+        self,
         task_id: str,
         terminal: type[messages.Cancelled] | type[messages.Interrupted],
         verb: str,
@@ -640,7 +639,7 @@ class Actor(BaseModel):
             logger.error("Task %s errored while being %s", task_id, verb, exc_info=True)
         self._running_asyncio_tasks.pop(task_id, None)
 
-    async def _aon_assign_reporting(self: Self, assignment: messages.Assign) -> None:
+    async def _aon_assign_reporting(self, assignment: messages.Assign) -> None:
         """Run :meth:`on_assign`, guaranteeing the backend hears how it ended.
 
         ``on_assign`` reports the failures it anticipates (bad inputs, the function
@@ -698,7 +697,7 @@ class Actor(BaseModel):
                 )
             )
 
-    async def aprocess(self: Self, message: messages.ToAgentMessage) -> None:
+    async def aprocess(self, message: messages.ToAgentMessage) -> None:
         """A function to process the message. This is used to process the message
         and send the results back to the agent.
 
@@ -794,7 +793,7 @@ class SerializingActor(Actor):
     )
 
     async def aget_locals(
-        self: Self,
+        self,
         assignment: Any = None,  # noqa: ANN401 - messages.Assign
     ) -> tuple[Mapping[str, AnyContext], Mapping[str, AnyState]]:
         """The contexts and states the function asked for, keyed by parameter."""
@@ -825,7 +824,7 @@ class SerializingActor(Actor):
         return context_kwargs, state_kwargs
 
     async def aget_dependency_locals(
-        self: Self, task: Task
+        self, task: Task
     ) -> Mapping[str, AgentDependencyProxy | InteractionsProxy]:
         """A proxy for every parameter annotated with a declared protocol, made
         for ``task``: its calls are children of that task and leave over this
@@ -859,9 +858,7 @@ class SerializingActor(Actor):
             )
         return proxies
 
-    async def aget_injected_locals(
-        self: Self, task: Task | None = None
-    ) -> Mapping[str, Any]:
+    async def aget_injected_locals(self, task: Task | None = None) -> Mapping[str, Any]:
         """The Task, and the app's clients, keyed by every parameter that asked
         for them by annotation. ``task`` is the one the actor made for this
         assignment; the dependency proxies are made for the same object.

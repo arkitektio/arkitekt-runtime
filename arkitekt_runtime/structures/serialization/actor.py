@@ -23,6 +23,7 @@ from arkitekt_spec.actions import (
     ReturnPortInput,
 )
 from arkitekt_spec.declare.descriptors import (
+    Constraint,
     fits_can_be_tested,
     fits_holds,
     unfulfilled,
@@ -68,17 +69,17 @@ from arkitekt_runtime.structures.serialization.shrink import ashrink_arg, ashrin
 
 def _expand_error(
     port: SerializablePort,
-    value: Any,
+    value: object,
     ctx: SerializationContext,
-    message: str,  # noqa: ANN401
+    message: str,
 ) -> ExpandingError:
     return to_port_error(port, value, message, path=ctx.path, depth=ctx.depth)
 
 
 async def _expand(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: JSONSerializable,
+    ctx: SerializationContext,
 ) -> Any:  # noqa: ANN401
     """Recursive entry point used by the container handlers."""
     return await aexpand_arg(
@@ -94,7 +95,7 @@ async def _expand(
 
 
 async def _expand_dict(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     child = single_child(port)
     if child is None:
@@ -109,11 +110,11 @@ async def _expand_dict(
     expanded = await asyncio.gather(
         *[_expand(child, item, ctx.child(port.key, key)) for key, item in value.items()]
     )
-    return dict(zip(value.keys(), expanded))
+    return dict(zip(value.keys(), expanded, strict=True))
 
 
 async def _expand_union(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: JSONSerializable, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if not port.children:
         raise _expand_error(
@@ -142,7 +143,7 @@ async def _expand_union(
 
 
 async def _expand_list(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     child = single_child(port)
     if child is None:
@@ -163,7 +164,7 @@ async def _expand_list(
 
 
 async def _expand_model(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if not isinstance(value, dict):
         raise _expand_error(
@@ -183,13 +184,15 @@ async def _expand_model(
             for child in port.children
         ]
     )
-    params = {child.key: val for child, val in zip(port.children, expanded)}
+    params = {
+        child.key: val for child, val in zip(port.children, expanded, strict=True)
+    }
     fmodel = ctx.registry.get_fullfilled_model(identifier=port.identifier)
     return fmodel.cls(**params)
 
 
 async def _expand_int(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if not isinstance(value, (int, float, str)):
         raise _expand_error(
@@ -202,7 +205,7 @@ async def _expand_int(
 
 
 async def _expand_float(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if not isinstance(value, (int, float, str)):
         raise _expand_error(
@@ -215,7 +218,7 @@ async def _expand_float(
 
 
 async def _expand_date(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if not isinstance(value, (str, dt.datetime)):
         raise _expand_error(
@@ -230,7 +233,7 @@ async def _expand_date(
 
 
 async def _expand_enum(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     if port.identifier is None:
         raise _expand_error(port, value, ctx, "We only accept enums with identifiers")
@@ -260,8 +263,8 @@ async def _expand_enum(
 
 def _unwrap_reference(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> str:
     """Validate a ``{"__identifier", "object"}`` envelope and return the object id."""
     if not isinstance(value, dict):
@@ -291,15 +294,17 @@ def _unwrap_reference(
 
 
 async def _expand_memory_structure(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     drawer = _unwrap_reference(port, value, ctx)
     return await ctx.require_shelver().aget_from_shelve(drawer)
 
 
 def _descriptor_mismatch(
-    fstruc: FullFilledStructure, value: Any, constraints: Any
-) -> str | None:  # noqa: ANN401
+    fstruc: FullFilledStructure,
+    value: object,
+    constraints: Sequence[Constraint] | None,
+) -> str | None:
     """What ``value`` fails of a port's ``requires`` or ``provides``, if anything.
 
     Only a structure that says how its objects are described can be tested, and
@@ -316,7 +321,7 @@ def _descriptor_mismatch(
 
 
 async def _expand_structure(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     object = _unwrap_reference(port, value, ctx)
     if not port.identifier:
@@ -356,19 +361,19 @@ async def _expand_structure(
 
 
 async def _expand_bool(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     return bool(value)
 
 
 async def _expand_string(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     return str(value)
 
 
 async def _expand_quantity(
-    port: SerializablePort, value: Any, ctx: SerializationContext
+    port: SerializablePort, value: object, ctx: SerializationContext
 ) -> Any:  # noqa: ANN401
     try:
         return expand_quantity(value, port.reference_unit)
@@ -493,7 +498,9 @@ async def expand_inputs(
     except Exception as e:
         raise ExpandingError(f"Couldn't expand Arguments: {e}") from e
 
-    expanded = {port.key: val for port, val in zip(definition.args, expanded_args)}
+    expanded = {
+        port.key: val for port, val in zip(definition.args, expanded_args, strict=True)
+    }
     _check_fits(definition, expanded, structure_registry, fits)
     return expanded
 
@@ -534,9 +541,9 @@ def _check_fits(
 
 def _shrink_error(
     port: SerializablePort,
-    value: Any,
+    value: object,
     ctx: SerializationContext,
-    message: str,  # noqa: ANN401
+    message: str,
 ) -> ShrinkingError:
     return to_shrink_port_error(
         port, value, message, path=(*ctx.path, port.key), depth=ctx.depth
@@ -545,8 +552,8 @@ def _shrink_error(
 
 async def _shrink(
     port: SerializablePort,
-    value: Any,
-    ctx: SerializationContext,  # noqa: ANN401
+    value: object,
+    ctx: SerializationContext,
 ) -> JSONSerializable:
     """Recursive entry point used by the container handlers."""
     return await ashrink_return(
@@ -560,8 +567,8 @@ async def _shrink(
 
 
 async def _shrink_union(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not port.children:
         raise _shrink_error(
             port,
@@ -586,8 +593,8 @@ async def _shrink_union(
 
 
 async def _shrink_dict(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     value = unwrapped(value)  # a state's dict, returned as its view shows it
     if not isinstance(value, dict):
         raise _shrink_error(
@@ -611,8 +618,8 @@ async def _shrink_dict(
 
 
 async def _shrink_list(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     value = unwrapped(value)  # a state's list, returned as its view shows it
     if not isinstance(value, list):
         raise _shrink_error(
@@ -638,8 +645,8 @@ async def _shrink_list(
 
 
 async def _shrink_model(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not port.children:
         raise _shrink_error(
             port,
@@ -661,15 +668,15 @@ async def _shrink_model(
         ]
     )
     params: dict[str, JSONSerializable] = {
-        child.key: val for child, val in zip(port.children, shrunk)
+        child.key: val for child, val in zip(port.children, shrunk, strict=True)
     }
     params["__identifier"] = port.identifier
     return params
 
 
 async def _shrink_int(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not isinstance(value, int):
         raise _shrink_error(
             port, value, ctx, f"Expected int, got {type(value).__name__}: {repr(value)}"
@@ -678,8 +685,8 @@ async def _shrink_int(
 
 
 async def _shrink_float(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not isinstance(value, (float, int)):
         raise _shrink_error(
             port,
@@ -691,8 +698,8 @@ async def _shrink_float(
 
 
 async def _shrink_date(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not isinstance(value, dt.datetime):
         raise _shrink_error(
             port,
@@ -704,8 +711,8 @@ async def _shrink_date(
 
 
 async def _shrink_memory_structure(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not port.identifier:
         raise _shrink_error(
             port,
@@ -720,8 +727,8 @@ async def _shrink_memory_structure(
 
 
 async def _shrink_structure(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not port.identifier:
         raise _shrink_error(
             port,
@@ -762,14 +769,14 @@ async def _shrink_structure(
 
 
 async def _shrink_bool(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     return bool(value)
 
 
 async def _shrink_string(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if not isinstance(value, str):
         raise _shrink_error(
             port, value, ctx, f"Expected str, got {type(value).__name__}: {repr(value)}"
@@ -778,14 +785,14 @@ async def _shrink_string(
 
 
 async def _shrink_quantity(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     return shrink_quantity(value)
 
 
 async def _shrink_enum(
-    port: SerializablePort, value: Any, ctx: SerializationContext
-) -> JSONSerializable:  # noqa: ANN401
+    port: SerializablePort, value: object, ctx: SerializationContext
+) -> JSONSerializable:
     if isinstance(value, Enum):
         return value.name
     # typing.Literal-derived enums carry bare values (e.g. "a" or 1) instead of
@@ -883,7 +890,7 @@ async def shrink_outputs(
         )
 
     if skip_shrinking:
-        return {port.key: val for port, val in zip(return_ports, returns)}
+        return {port.key: val for port, val in zip(return_ports, returns, strict=True)}
 
     shrunk = await asyncio.gather(
         *[
@@ -895,10 +902,10 @@ async def shrink_outputs(
                 path=[port.key],
                 depth=0,
             )
-            for port, val in zip(return_ports, returns)
+            for port, val in zip(return_ports, returns, strict=True)
         ]
     )
-    return {port.key: val for port, val in zip(return_ports, shrunk)}
+    return {port.key: val for port, val in zip(return_ports, shrunk, strict=True)}
 
 
 # --------------------------------------------------------------------------- #

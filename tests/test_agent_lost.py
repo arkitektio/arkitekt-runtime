@@ -28,7 +28,7 @@ class OnePostman:
     def __init__(self, *events: Event) -> None:
         self.events = events
 
-    async def aassign(self, **_: Any) -> AsyncGenerator[Event, None]:  # noqa: ANN401
+    async def aassign(self, **_: Any) -> AsyncGenerator[Event, None]:
         for event in self.events:
             yield event
 

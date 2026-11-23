@@ -9,7 +9,7 @@ They drive a real ``BaseAgent`` message loop over
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 import pytest
@@ -60,7 +60,7 @@ async def _pump(agent: BaseAgent, count: int) -> None:
         await asyncio.wait_for(loop.__anext__(), timeout=2.0)
 
 
-async def _until(predicate, timeout: float = 2.0) -> None:
+async def _until(predicate: Callable[[], bool], timeout: float = 2.0) -> None:
     waited = 0.0
     while not predicate() and waited < timeout:
         await asyncio.sleep(0.01)
@@ -81,7 +81,7 @@ def _assign(task: str, interface: str, **args: object) -> messages.Assign:
     )
 
 
-def _register(agent: BaseAgent, function) -> None:
+def _register(agent: BaseAgent, function: Callable[..., object]) -> None:
     agent.app_registry.register(
         function,
     )

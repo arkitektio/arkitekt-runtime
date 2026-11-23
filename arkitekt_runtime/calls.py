@@ -273,7 +273,7 @@ async def acall_dependency(
     definition: DefinitionInput,
     dependency_key: ID,
     method: str,
-    *args: Any,  # noqa: ANN401 -- the method's own arguments
+    *args: Any,
     postman: Postman,
     structure_registry: StructureRegistry,
     reference: str | None = None,
@@ -281,7 +281,7 @@ async def acall_dependency(
     parent: Assign | None = None,
     capture: bool = False,
     call_policy: "CallPolicy | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> Any:  # noqa: ANN401 -- whatever the method returns, expanded
     """Call a method on a dependency and return expanded Python values."""
 
@@ -324,7 +324,7 @@ async def aiterate_dependency(
     definition: DefinitionInput,
     dependency_key: ID,
     method: str,
-    *args: Any,  # noqa: ANN401 -- the method's own arguments
+    *args: Any,
     postman: Postman,
     structure_registry: StructureRegistry,
     reference: str | None = None,
@@ -332,7 +332,7 @@ async def aiterate_dependency(
     parent: Assign | None = None,
     capture: bool = False,
     call_policy: "CallPolicy | None" = None,
-    **kwargs: Any,  # noqa: ANN401 -- ditto, by keyword
+    **kwargs: Any,
 ) -> AsyncGenerator[Any, None]:
     """Stream a generator method of a dependency, each yield expanded."""
     ticket = reserve_call(postman, parent)
