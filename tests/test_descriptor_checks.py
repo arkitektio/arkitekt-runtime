@@ -76,9 +76,15 @@ def promises_singles(channels: list[int]) -> list[SingleChannel]:
 async def agent() -> AsyncIterator[BaseAgent]:
     registry = AppRegistry()
 
-    @registry.structure("@test/picture", describe=describe_picture)
     async def expand_picture(id: str) -> Picture:
         return Picture(id)
+
+    registry.structure_registry.register_as_structure(
+        Picture,
+        identifier="@test/picture",
+        aexpand=expand_picture,
+        describe=describe_picture,
+    )
 
     for function in (
         passthrough,

@@ -36,7 +36,6 @@ from arkitekt_spec.declare.agents.connection import (
 )
 from arkitekt_spec.declare.agents.errors import (
     AgentException,
-    MissingServiceWarning,
     NoCallerError,
     ProvisionException,
 )
@@ -787,29 +786,6 @@ class BaseAgent(KoiledModel):
         for lock_schema in app_registry.get_locks():
             if lock_schema.key not in self.locks:
                 self.locks[lock_schema.key] = TaskLock(self, lock_schema)
-
-        self._warn_about_missing_services()
-
-    def _warn_about_missing_services(self) -> None:
-        """Warn when a registered function uses a structure of a service the app lacks.
-
-        Only meaningful for an agent bound to an app: that is the only case where
-        the set of services is known. Caught here rather than at the first call,
-        where it would surface as a failed expansion far from its cause.
-        """
-        if self.bound_app is None:
-            return
-        for service, interfaces in sorted(
-            self.app_registry.required_services().items()
-        ):
-            if service not in self.bound_app.services:
-                warnings.warn(
-                    f"{', '.join(sorted(interfaces))} use structures of the "
-                    f"'{service}' service, but this app was built without it. "
-                    f"Add '{service}' to the app's services to expand them.",
-                    MissingServiceWarning,
-                    stacklevel=2,
-                )
 
     def get_structure_registry_for_interface(self, interface: str) -> StructureRegistry:
         """Get the structure registry for a given interface from the app registry.

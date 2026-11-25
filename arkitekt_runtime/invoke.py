@@ -9,19 +9,16 @@ for ``rekuest/client/``, so the target is described structurally and the raw ent
 take plain ids.
 
 **Neither half knows a client.** A :class:`~rekuest.client.client.Rekuest` calls in here
-with its own postman and registry, a :class:`~arkitekt_runtime.task.Task` with its agent's --
-which is what lets :mod:`arkitekt_runtime.task` use this while still knowing no service.
+with its own postman and run, a :class:`~arkitekt_runtime.task.Task` with its agent's.
 
-``postman`` and ``structure_registry`` are required keyword arguments, not defaulted
-options. They were once ``None``-defaulted and passed to a resolver that fell back to a
-contextvar; the contextvar is gone, so the only thing an omitted argument could produce
-was a deferred error. Every entry point is private: what is public is the two classes.
+The target is found at run time, so nothing static says what it takes or returns: it is
+called **by reference** (:mod:`arkitekt_runtime.ref`). ``origin`` is the run its
+references expand through. Every entry point is private: what is public is the two classes.
 """
 
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast, runtime_checkable
 
-from arkitekt_spec.declare.structures.registry import StructureRegistry
 from arkitekt_spec.declare.structures.types import JSONSerializable
 from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
 from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
@@ -217,7 +214,7 @@ async def _acall(
     target: "CallTarget | ImplementationTarget",
     *args: Any,
     postman: Postman,
-    structure_registry: StructureRegistry,
+    origin: Any = None,  # noqa: ANN401 -- the BoundApp references expand through
     parent: Assign | None = None,
     reference: str | None = None,
     hooks: list[HookInput] | None = None,
@@ -234,7 +231,7 @@ async def _acall(
     on_agent: "AgentTarget | None" = None,
     **kwargs: Any,
 ) -> Any:  # noqa: ANN401 -- whatever the action returns, expanded
-    """Call an action and return its expanded result.
+    """Call an action and return its result, structures as :class:`~arkitekt_runtime.ref.Ref`.
 
     ``on_agent`` is the agent the action is to run on (its id, or something fetched that
     carries one) rather than whichever agent of it is free: what a stateful action needs.
@@ -252,8 +249,10 @@ async def _acall(
 
     ticket = reserve_call(postman, parent)
     try:
+        # An action found at run time says nothing static about its types: it is
+        # called by reference (arkitekt_runtime.ref).
         shrinked_args = await ashrink_args(
-            action, args, kwargs, structure_registry=structure_registry
+            action, args, kwargs, structure_registry=None
         )
         raw_returns = await _acall_raw(
             postman=postman,
@@ -279,7 +278,7 @@ async def _acall(
     finally:
         release_call(postman, parent, ticket)
     returns = await aexpand_returns(
-        action, raw_returns, structure_registry=structure_registry
+        action, raw_returns, structure_registry=None, origin=origin
     )
     if len(returns) == 1:
         return returns[0]
@@ -290,7 +289,7 @@ async def _aiterate(
     target: "CallTarget | ImplementationTarget",
     *args: Any,
     postman: Postman,
-    structure_registry: StructureRegistry,
+    origin: Any = None,  # noqa: ANN401 -- the BoundApp references expand through
     parent: Assign | None = None,
     reference: str | None = None,
     hooks: list[HookInput] | None = None,
@@ -307,7 +306,7 @@ async def _aiterate(
     on_agent: "AgentTarget | None" = None,
     **kwargs: Any,
 ) -> AsyncGenerator[Any, None]:
-    """Stream a generator action's yields, each one expanded (``on_agent`` as in :func:`_acall`)."""
+    """Stream a generator action's yields, by reference (``on_agent`` as in :func:`_acall`)."""
     action, implementation_id = _resolve_target(target)
     agent_id = _agent_id(
         on_agent, implementation_id
@@ -315,8 +314,10 @@ async def _aiterate(
 
     ticket = reserve_call(postman, parent)
     try:
+        # An action found at run time says nothing static about its types: it is
+        # called by reference (arkitekt_runtime.ref).
         shrinked_args = await ashrink_args(
-            action, args, kwargs, structure_registry=structure_registry
+            action, args, kwargs, structure_registry=None
         )
         async for raw_returns in _aiterate_raw(
             postman=postman,
@@ -340,7 +341,7 @@ async def _aiterate(
             ticket=ticket,
         ):
             returns = await aexpand_returns(
-                action, raw_returns, structure_registry=structure_registry
+                action, raw_returns, structure_registry=None, origin=origin
             )
             if len(returns) == 1:
                 yield returns[0]

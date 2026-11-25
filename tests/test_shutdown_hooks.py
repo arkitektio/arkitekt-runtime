@@ -8,6 +8,7 @@ through its startup hooks — exactly once per start.
 """
 
 from collections.abc import Generator
+from typing import cast
 
 import pytest
 from arkitekt_spec.declare.app import AppRegistry
@@ -93,7 +94,8 @@ async def test_shutdown_hooks_run_with_states_and_contexts(
         seen.append(counter)
 
     # The state belongs to the module's registry; this agent's app takes it in.
-    mock_agent.app_registry.merge(_REGISTRY)
+    mock_agent.app_registry.context(cast(type, Connection))
+    mock_agent.app_registry.state(Counter)
     mock_agent.app_registry.shutdown(close_connection)
 
     agent = mock_agent
@@ -123,7 +125,8 @@ async def test_threaded_shutdown_hook_runs_with_states_and_contexts(
         seen.append(counter)
 
     # The state belongs to the module's registry; this agent's app takes it in.
-    mock_agent.app_registry.merge(_REGISTRY)
+    mock_agent.app_registry.context(cast(type, Connection))
+    mock_agent.app_registry.state(Counter)
     mock_agent.app_registry.shutdown(close_connection)
 
     agent = mock_agent

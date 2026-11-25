@@ -65,7 +65,6 @@ if TYPE_CHECKING:
         Iterator,
     )
 
-    from arkitekt_spec.declare.structures.registry import StructureRegistry
     from arkitekt_spec.declare.structures.types import JSONSerializable
     from arkitekt_spec.declare.targets import CallTarget, ImplementationTarget
     from arkitekt_spec.declare.task import AssignPrompt, HookInput, StateRequirement
@@ -525,14 +524,12 @@ class Task:
 
     # -- calling ---------------------------------------------------------- #
 
-    def _caller(
-        self, calling: bool = True
-    ) -> "tuple[Postman, StructureRegistry, Assign]":
-        """The socket, the registry and the parent for a call made as this task's child.
+    def _caller(self, calling: bool = True) -> "tuple[Postman, Any, Assign]":
+        """The socket, the run and the parent for a call made as this task's child.
 
         Read off the assignment rather than looked up: the postman is the agent's
-        caller socket, the parent is this task's own assignment, and the registry is the
-        one the actor was built with. Mirrors
+        caller socket, the parent is this task's own assignment, and the run (the
+        agent's ``bound_app``) is what the call's references expand through. Mirrors
         :meth:`rekuest.actors.dependency.AgentMethodProxy._call_kwargs`, whose docstring
         puts it best -- nothing is looked up from context.
 
@@ -569,7 +566,7 @@ class Task:
                 "would have nothing to be a child of. Call through a Rekuest client "
                 "instead -- rekuest.call(action, ...) -- which makes a root."
             )
-        return agent.caller_postman, self._helper.structure_registry, assignment
+        return agent.caller_postman, getattr(agent, "bound_app", None), assignment
 
     async def acall(
         self,
@@ -621,12 +618,12 @@ class Task:
         """
         from arkitekt_runtime.invoke import _acall
 
-        postman, structure_registry, parent = self._caller()
+        postman, origin, parent = self._caller()
         return await _acall(
             target,
             *args,
             postman=postman,
-            structure_registry=structure_registry,
+            origin=origin,
             parent=parent,
             reference=reference,
             hooks=hooks,
@@ -675,12 +672,12 @@ class Task:
         """Stream a generator action's yields as a child of this task (``on_agent`` as in :meth:`acall`)."""
         from arkitekt_runtime.invoke import _aiterate
 
-        postman, structure_registry, parent = self._caller()
+        postman, origin, parent = self._caller()
         async for value in _aiterate(
             target,
             *args,
             postman=postman,
-            structure_registry=structure_registry,
+            origin=origin,
             parent=parent,
             reference=reference,
             hooks=hooks,

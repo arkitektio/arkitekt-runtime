@@ -85,7 +85,7 @@ async def _expand(
     return await aexpand_arg(
         port,
         value,
-        structure_registry=ctx.registry,
+        structure_registry=ctx.structures,
         shelver=ctx.require_shelver(),
         path=ctx.path,
         depth=ctx.depth,
@@ -187,7 +187,7 @@ async def _expand_model(
     params = {
         child.key: val for child, val in zip(port.children, expanded, strict=True)
     }
-    fmodel = ctx.registry.get_fullfilled_model(identifier=port.identifier)
+    fmodel = ctx.structures.get_fullfilled_model(identifier=port.identifier)
     return fmodel.cls(**params)
 
 
@@ -238,7 +238,7 @@ async def _expand_enum(
     if port.identifier is None:
         raise _expand_error(port, value, ctx, "We only accept enums with identifiers")
     try:
-        fenum = ctx.registry.get_fullfilled_enum(port.identifier)
+        fenum = ctx.structures.get_fullfilled_enum(port.identifier)
     except KeyError:
         raise _expand_error(
             port, value, ctx, f"Enum {port.identifier} not found in registry"
@@ -332,7 +332,7 @@ async def _expand_structure(
         # Inside the try: a registry that refuses this identifier (unknown, or
         # another service's) says why, and that belongs in the port's path like
         # any other expansion failure.
-        fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
+        fstruc = ctx.structures.get_fullfilled_structure(port.identifier)
     except (KeyError, StructureRegistryError) as e:
         raise _expand_error(
             port,
@@ -559,7 +559,7 @@ async def _shrink(
     return await ashrink_return(
         port,
         value,
-        structure_registry=ctx.registry,
+        structure_registry=ctx.structures,
         shelver=ctx.require_shelver(),
         path=ctx.path,
         depth=ctx.depth,
@@ -736,8 +736,8 @@ async def _shrink_structure(
             ctx,
             "Port is structure but does not have identifier. Please report this to the developers.",
         )
-    fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
-    other = ctx.registry.declared_as_another(value, port.identifier)
+    fstruc = ctx.structures.get_fullfilled_structure(port.identifier)
+    other = ctx.structures.declared_as_another(value, port.identifier)
     if other is not None:
         raise _shrink_error(
             port,

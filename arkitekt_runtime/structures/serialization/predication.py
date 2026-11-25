@@ -4,6 +4,7 @@ Used to pick the matching branch of a ``UNION`` port before shrinking.
 """
 
 import datetime as dt
+from enum import Enum
 from typing import Any
 
 from arkitekt_spec.actions import PortKind
@@ -27,9 +28,12 @@ def _require_identifier(port: SerializablePort) -> str:
 def predicate_port(
     port: SerializablePort,
     value: Any,  # noqa: ANN401
-    structure_registry: StructureRegistry,
+    structure_registry: StructureRegistry | None,
 ) -> bool:
     """Check whether ``value`` is of the type described by ``port``.
+
+    Without a registry (an untyped call) a structure is told by its reference or its
+    class's mark, a model by being a dict, an enum by being one of the choices.
 
     Container kinds recurse into their children; registered kinds
     (structure / model / memory structure / enum) defer to the predicate the
@@ -69,6 +73,10 @@ def predicate_port(
         return isinstance(value, str)
     if kind == PortKind.QUANTITY:
         return matches_dimension(value, port.dimension)
+    if structure_registry is None:
+        return _by_reference(port, value)
+    if kind == PortKind.STRUCTURE and _is_ref(value):
+        return value.identifier == port.identifier
     if kind == PortKind.STRUCTURE:
         return structure_registry.get_fullfilled_structure(
             _require_identifier(port)
@@ -96,6 +104,35 @@ def predicate_port(
             _require_identifier(port)
         ).predicate(value)
 
+    raise ValueError(f"Unknown port kind: {port.kind} to predicate")
+
+
+def _is_ref(value: object) -> bool:
+    from arkitekt_runtime.ref import Ref
+
+    return isinstance(value, Ref)
+
+
+def _by_reference(port: SerializablePort, value: Any) -> bool:  # noqa: ANN401
+    from arkitekt_spec.declare.structures.declare import structure_of
+
+    from arkitekt_runtime.ref import Ref
+
+    if port.kind in (PortKind.STRUCTURE, PortKind.MEMORY_STRUCTURE):
+        if isinstance(value, str):
+            return True
+        if isinstance(value, Ref):
+            return value.identifier == port.identifier
+        declared = structure_of(type(value))
+        return declared is not None and declared.identifier == port.identifier
+    if port.kind == PortKind.MODEL:
+        keys = [child.key for child in port.children or ()]
+        if isinstance(value, dict):
+            return all(key in value for key in keys)
+        return all(hasattr(value, key) for key in keys)
+    if port.kind == PortKind.ENUM:
+        said = value.name if isinstance(value, Enum) else str(value)
+        return any(said == choice.value for choice in port.choices or ())
     raise ValueError(f"Unknown port kind: {port.kind} to predicate")
 
 

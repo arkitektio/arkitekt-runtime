@@ -115,7 +115,6 @@ class _Helper:
         self.agent = SimpleNamespace(caller_postman=postman)
         # Only `.task` is read from it, on its way to `_resolve_parent`.
         self.assignment = messages.Assign.model_construct(task="task-1")
-        self.structure_registry = object()
         self.task = "task-1"
         # Calls are what only a workflow makes, and one naming its target declares dynamic calls.
         self.execution = Execution.WORKFLOW

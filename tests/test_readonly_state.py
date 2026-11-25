@@ -150,7 +150,7 @@ async def test_readonly_annotation_reaches_an_actor_as_a_refusing_view() -> None
     agent = BaseAgent(
         name="ro-actor", transport=MemoryAgentTransport(), app_registry=AppRegistry()
     )
-    agent.app_registry.merge(_REGISTRY)  # Board is a state of this app too
+    agent.app_registry.state(Board)  # Board is a state of this app too
     transport = agent.transport
     board = _evented_board()
     agent.states["Board"] = board

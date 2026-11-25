@@ -27,20 +27,24 @@ class SerializationContext:
     to its agent's app, so the expanders resolve it from what is current.
     """
 
-    registry: StructureRegistry
+    registry: StructureRegistry | None
+    """``None`` for an untyped call: structures travel as references, models as values."""
     shelver: Shelver | None = None
     path: tuple[str, ...] = ()
     depth: int = 0
     batcher: ExpandBatcher = field(default_factory=ExpandBatcher)
+    origin: Any = None
+    """The run references made here expand through (a ``BoundApp``)."""
 
     @classmethod
     def build(
         cls,
-        registry: StructureRegistry,
+        registry: StructureRegistry | None,
         shelver: Shelver | None = None,
         path: Sequence[str] | None = None,
         depth: int = 0,
         batcher: ExpandBatcher | None = None,
+        origin: Any = None,  # noqa: ANN401 -- a BoundApp
     ) -> "SerializationContext":
         return cls(
             registry=registry,
@@ -48,11 +52,19 @@ class SerializationContext:
             path=tuple(path or ()),
             depth=depth,
             batcher=batcher or ExpandBatcher(),
+            origin=origin,
         )
 
     async def load(self, structure: FullFilledStructure, id: ID) -> Any:  # noqa: ANN401
         """Expand ``id`` as ``structure``, batched with its siblings where it can be."""
         return await self.batcher.load(structure, id)
+
+    @property
+    def structures(self) -> StructureRegistry:
+        """The registry, on a path that always has one (the actor's)."""
+        if self.registry is None:
+            raise RuntimeError("This serialization step needs a structure registry")
+        return self.registry
 
     def child(self, *parts: str) -> "SerializationContext":
         """Context for a nested port one level down."""

@@ -893,11 +893,11 @@ class SerializingActor(Actor):
         if not wanted.service_client_variables:
             return kwargs
 
-        from arkitekt_spec.declare.agents.types import resolve_service_clients
+        from arkitekt_spec.declare.agents.types import resolve_clients
 
         app = await self.agent.aget_bound_app()
         kwargs.update(
-            resolve_service_clients(
+            resolve_clients(
                 wanted.service_client_variables,
                 app,
                 whose=f"'{self.definition.name}'",

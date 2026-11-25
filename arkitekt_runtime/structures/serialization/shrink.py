@@ -110,12 +110,15 @@ async def _model(
         raise ShrinkingError(f"Port {port} is a model but has no identifier")
     if not port.children:
         raise ShrinkingError(f"Port {port} is a model but has no children")
+
+    def field(key: str) -> object:
+        # An untyped call takes a model as its plain dict, too.
+        return value.get(key) if isinstance(value, dict) else getattr(value, key)
+
     try:
         shrunk = await asyncio.gather(
             *[
-                _shrink(
-                    child, getattr(value, child.key), ctx.child(port.key, child.key)
-                )
+                _shrink(child, field(child.key), ctx.child(port.key, child.key))
                 for child in port.children
             ]
         )
@@ -166,6 +169,20 @@ async def _structure(
     if isinstance(value, str):
         # A bare string is taken as a reference to a global structure.
         return value
+    from arkitekt_runtime.ref import Ref
+
+    if isinstance(value, Ref) or ctx.registry is None:
+        try:
+            ref = await Ref.aof(value)
+        except TypeError as e:
+            raise StructureShrinkingError(
+                f"{port.identifier} is passed as an id, a Ref or a @structure object: {e}"
+            ) from None
+        if ref.identifier != port.identifier:
+            raise StructureShrinkingError(
+                f"A {ref.identifier} was given where {port.identifier} is declared."
+            )
+        return {"__identifier": port.identifier, "object": ref.id}
     fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
     other = ctx.registry.declared_as_another(value, port.identifier)
     if other is not None:
@@ -242,9 +259,10 @@ SHRINKERS: KindTable = {
 async def ashrink_arg(
     port: SerializablePort,
     value: Any,  # noqa: ANN401
-    structure_registry: StructureRegistry,
+    structure_registry: StructureRegistry | None,
 ) -> JSONSerializable:
-    """Shrink a Python value into its JSON wire form through ``port``.
+    """Shrink a Python value into its JSON wire form through ``port``; without a
+    registry a structure is taken as an id, a ``Ref`` or a ``@structure`` object.
 
     Raises:
         ShrinkingError: If the value does not fit the port.
@@ -276,7 +294,7 @@ async def ashrink_args(
     definition: SerializableDefinition,
     args: Sequence[Any],
     kwargs: dict[str, Any],
-    structure_registry: StructureRegistry,
+    structure_registry: StructureRegistry | None,
 ) -> dict[str, JSONSerializable]:
     """Shrink positional and keyword arguments against ``definition.args``.
 

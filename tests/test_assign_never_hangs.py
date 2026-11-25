@@ -156,7 +156,7 @@ async def test_failure_outside_the_actors_own_error_handling_is_reported(
         """Never reached."""
         return x
 
-    agent.app_registry.merge(_REGISTRY)  # Stage is a state of this app too
+    agent.app_registry.state(Stage)  # Stage is a state of this app too
     _register(agent, aneeds_state)
 
     transport.feed(_assign("task-4", "aneeds_state", x=1))

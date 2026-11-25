@@ -49,6 +49,7 @@ async def _expand(
         depth=ctx.depth,
         # Nested ports expand in the same batches as the return value they are part of.
         batcher=ctx.batcher,
+        origin=ctx.origin,
     )
 
 
@@ -163,6 +164,10 @@ async def _structure(
     object = value["object"]
     if not isinstance(object, (str, int)):
         raise error(f"Expected object to be a string or int, but got {type(object)}")
+    if ctx.registry is None:
+        from arkitekt_runtime.ref import Ref
+
+        return Ref(identifier=port.identifier, id=str(object)).from_app(ctx.origin)
 
     try:
         fstruc = ctx.registry.get_fullfilled_structure(port.identifier)
@@ -203,6 +208,8 @@ async def _model(
     params = {
         child.key: val for child, val in zip(port.children, expanded, strict=True)
     }
+    if ctx.registry is None:
+        return params
     try:
         fmodel = ctx.registry.get_fullfilled_model(port.identifier)
     except KeyError as e:
@@ -217,6 +224,8 @@ async def _enum(
 ) -> Any:  # noqa: ANN401 -- an expanded structure is whatever the caller registered
     if not port.identifier:
         raise PortExpandingError(f"Port {port.key} is an enum but has no identifier")
+    if ctx.registry is None:
+        return value
     try:
         fenum = ctx.registry.get_fullfilled_enum(port.identifier)
     except KeyError as e:
@@ -273,14 +282,16 @@ EXPANDERS: KindTable = {
 async def aexpand_return(
     port: SerializablePort,
     value: JSONSerializable,
-    structure_registry: StructureRegistry,
+    structure_registry: StructureRegistry | None,
     path: Sequence[str] | None = None,
     depth: int = 0,
     batcher: ExpandBatcher | None = None,
+    origin: Any = None,  # noqa: ANN401 -- a BoundApp
 ) -> Any:  # noqa: ANN401
     """Expand a JSON wire value back into a Python value through ``port``.
 
-    The expanders resolve their client from whichever app is current.
+    Without a registry nothing is fetched: a structure becomes a
+    :class:`~arkitekt_runtime.ref.Ref` expanding through ``origin``, a model its dict.
 
     Raises:
         ExpandingError: If the value does not fit the port.
@@ -299,7 +310,7 @@ async def aexpand_return(
         port,
         value,
         SerializationContext.build(
-            structure_registry, path=path, depth=depth, batcher=batcher
+            structure_registry, path=path, depth=depth, batcher=batcher, origin=origin
         ),
     )
 
@@ -307,9 +318,11 @@ async def aexpand_return(
 async def aexpand_returns(
     definition: SerializableDefinition,
     returns: dict[str, JSONSerializable],
-    structure_registry: StructureRegistry,
+    structure_registry: StructureRegistry | None,
+    origin: Any = None,  # noqa: ANN401 -- a BoundApp
 ) -> tuple[Any, ...]:
-    """Expand a returns dict against ``definition.returns``, in port order.
+    """Expand a returns dict against ``definition.returns``, in port order (by
+    reference without a registry; see :func:`aexpand_return`).
 
     A key missing from ``returns`` is tolerated only for nullable ports.
 
@@ -334,6 +347,7 @@ async def aexpand_returns(
                     port,
                     returns[port.key],
                     structure_registry=structure_registry,
+                    origin=origin,
                 )
             )
         except Exception as e:
